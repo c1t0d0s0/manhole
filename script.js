@@ -336,6 +336,27 @@ document.addEventListener("DOMContentLoaded", () => {
         return false;
     }
 
+    function parseNthWeeks(prefixText) {
+        const numMap = { '1': 1, '１': 1, '一': 1, '2': 2, '２': 2, '二': 2, '3': 3, '３': 3, '三': 3, '4': 4, '４': 4, '四': 4, '5': 5, '５': 5, '五': 5 };
+        const matches = prefixText.match(/第\s*([1-5１-５一-五1-5、・,＆＆\/・|または]+)/g);
+        const weeks = new Set();
+        if (matches) {
+            for (const m of matches) {
+                for (const ch of m) {
+                    if (numMap[ch]) weeks.add(numMap[ch]);
+                }
+            }
+        } else {
+            const singleMatches = prefixText.match(/([1-5１-５一-五])/g);
+            if (singleMatches) {
+                for (const ch of singleMatches) {
+                    if (numMap[ch]) weeks.add(numMap[ch]);
+                }
+            }
+        }
+        return Array.from(weeks);
+    }
+
     function evaluateCardAvailability(hoursText, targetDate = new Date()) {
         if (!hoursText || (hoursText.includes("要確認") && hoursText.length < 5)) {
             return { isAvailable: true, label: "🟢 本日配布日", badgeClass: "badge-today-open" };
@@ -346,6 +367,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const dayOfWeek = targetDate.getDay(); // 0: Sun, 1: Mon, ..., 6: Sat
         const isHoliday = isJapaneseHoliday(targetDate);
         const isWeekendOrHoliday = dayOfWeek === 0 || dayOfWeek === 6 || isHoliday;
+        const nthWeek = Math.ceil(day / 7);
 
         // 1. 年末年始判定 (12/29 - 1/3 など)
         if ((month === 12 && day >= 29) || (month === 1 && day <= 3)) {
@@ -361,8 +383,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // 3. 土日祝日の配布休止判定
         if (isWeekendOrHoliday) {
-            if (/(土日|土・日|祝日|休日).*?(お休み|休館|配布.*?なし|除き|除く)/.test(hoursText)) {
-                if (!/【(休日|土日|土・日|土曜|日曜|祝日)】|役場で配布/.test(hoursText)) {
+            const hasWeekendOpeningHeader = /【(休日|土日|土・日|土曜|日曜|祝日|土日祝|土・日・祝|土日祝日|土日・祝日|土・日・祝日|祝日・休日)】|役場で配布/.test(hoursText);
+            if (!hasWeekendOpeningHeader) {
+                if (/(土日|土・日|祝日|休日).*?(お休み|休館|配布.*?なし|除き|除く)/.test(hoursText)) {
                     return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
                 }
             }
@@ -373,31 +396,60 @@ document.addEventListener("DOMContentLoaded", () => {
             return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
         }
 
-        // 5. 曜日ごとの定休日チェック
+        // 5. 曜日ごとの定休日チェック（第N週指定対応）
         const dayNames = {
-            0: ["日曜日", "日曜"],
-            1: ["月曜日", "月曜"],
-            2: ["火曜日", "火曜"],
-            3: ["水曜日", "水曜"],
-            4: ["木曜日", "木曜"],
-            5: ["金曜日", "金曜"],
-            6: ["土曜日", "土曜"]
+            0: ["日曜日", "日曜", "日"],
+            1: ["月曜日", "月曜", "月"],
+            2: ["火曜日", "火曜", "火"],
+            3: ["水曜日", "水曜", "水"],
+            4: ["木曜日", "木曜", "木"],
+            5: ["金曜日", "金曜", "金"],
+            6: ["土曜日", "土曜", "土"]
         };
 
         const todayNames = dayNames[dayOfWeek] || [];
         for (const name of todayNames) {
-            const regex = new RegExp(`${name}.*?(お休み|定休|休館|休み)`);
-            if (regex.test(hoursText)) {
-                // 例外: 祝日の場合は翌日休（今日が祝日なら開いている）
-                if (isHoliday && new RegExp(`${name}.*?祝.*?翌日`).test(hoursText)) {
+            const regex = new RegExp(`((?:第[1-5１-５一-五1-5、・,＆＆\\/・|または]*|最終)?(?:\\s*[月火水木金土日]曜?日?)*?\\s*${name}.*?(?:お休み|定休|休館|休み))`, 'g');
+            let match;
+            while ((match = regex.exec(hoursText)) !== null) {
+                const matchedStr = match[1];
+                const idx = matchedStr.lastIndexOf(name);
+                const prefix = matchedStr.slice(Math.max(0, idx - 15), idx);
+
+                if (prefix.includes("第") || prefix.includes("最終")) {
+                    if (prefix.includes("最終")) {
+                        const lastDayOfMonth = new Date(targetDate.getFullYear(), month, 0).getDate();
+                        if (day + 7 <= lastDayOfMonth) {
+                            continue; // 今日は最終週ではない
+                        }
+                    } else {
+                        const specWeeks = parseNthWeeks(prefix);
+                        if (specWeeks.length > 0 && !specWeeks.includes(nthWeek)) {
+                            continue; // 今日は指定された第N週ではないのでこの定休ルールは適用外
+                        }
+                    }
+                }
+
+                // 例外: 祝日の場合は翌日休 / 祝日除く（今日が祝日なら開いている）
+                if (isHoliday && /(祝日|休日).*?(除く|翌日|開館)/.test(matchedStr)) {
                     return { isAvailable: true, label: "🟢 本日配布日", badgeClass: "badge-today-open" };
                 }
+
                 return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
             }
         }
 
         // 6. 営業時間外（現在時刻との比較判定）
-        const timeMatch = hoursText.match(/(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+        let timeMatch = null;
+        if (isWeekendOrHoliday) {
+            timeMatch = hoursText.match(/【(?:土日祝|休日|土・日・祝|土日|土・日|祝日)】\s*(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+        } else {
+            timeMatch = hoursText.match(/【平日】\s*(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+        }
+        if (!timeMatch) {
+            timeMatch = hoursText.match(/(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+        }
+
         if (timeMatch) {
             const startHour = parseInt(timeMatch[1], 10);
             const startMin = parseInt(timeMatch[2], 10);
