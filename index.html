@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>マンホールカード まっぷ！ | 全国の配布場所・デザイン検索</title>
+    <meta name="description" content="全国のマンホールカード配布場所とデザインを地図で探せるポップで楽しい検索サイト！市町村名検索、配布時間、在庫情報もチェックできます。">
+    
+    <!-- Google Fonts: Zen Maru Gothic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- ポップなヘッダー -->
+        <header class="app-header">
+            <div class="header-inner">
+                <div class="logo-area">
+                    <div class="icon-bubble" title="マンホールカード">
+                        <!-- 本物っぽいマンホール蓋のSVGアイコン -->
+                        <svg class="manhole-svg-icon" viewBox="0 0 100 100" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="50" cy="50" r="46" fill="#FB8500" stroke="#FFFFFF" stroke-width="4"/>
+                            <circle cx="50" cy="50" r="38" fill="#334155" stroke="#F8FAFC" stroke-width="2"/>
+                            <circle cx="50" cy="50" r="30" fill="none" stroke="#94A3B8" stroke-width="2.5" stroke-dasharray="10 5"/>
+                            <circle cx="50" cy="50" r="20" fill="none" stroke="#94A3B8" stroke-width="2"/>
+                            <circle cx="50" cy="50" r="12" fill="#FFB703" stroke="#FFFFFF" stroke-width="2"/>
+                            <circle cx="50" cy="50" r="5" fill="#0284C7"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="app-title">マンホールカード <span class="highlight">マップ！</span></h1>
+                        <p class="app-subtitle">全国のカードを見つけてあつめよう！</p>
+                    </div>
+                </div>
+                <div class="header-badges">
+                    <span class="stat-badge" id="cardCountBadge">
+                        <i class="fa-solid fa-location-dot"></i> <span id="totalCardsCount">0</span> 枚
+                    </span>
+                    <button class="btn-pop btn-random desktop-only" id="btnRandomCardDesktop" title="ランダムなカードを表示">
+                        <i class="fa-solid fa-dice"></i> おまかせ
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- メイン地図コンテナ (100%全画面) -->
+        <main class="map-container">
+            <!-- Floating Control Panel (地図上のフローティングUI) -->
+            <div class="floating-controls">
+                <!-- 検索バー 兼 フローティングヘッダー -->
+                <div class="floating-search-bar">
+                    <div class="search-input-box">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="searchInput" class="search-input" placeholder="市町村名・施設名で検索..." autocomplete="off">
+                        <button id="btnClearSearch" class="btn-clear hidden" title="クリア">
+                            <i class="fa-solid fa-circle-xmark"></i>
+                        </button>
+                    </div>
+                    
+                    <button id="btnMobileFilterToggle" class="btn-pop btn-filter-toggle" title="絞り込み">
+                        <i class="fa-solid fa-sliders"></i> <span class="btn-label">絞り込み</span>
+                    </button>
+
+                    <!-- ドロップダウン候補 -->
+                    <div id="searchSuggestions" class="search-suggestions hidden"></div>
+                </div>
+
+                <!-- クイックアクション・ピルバー (PCおよびモバイル) -->
+                <div class="floating-pill-bar">
+                    <!-- PC用デスクトップフィルター表示 -->
+                    <div class="desktop-filters desktop-only">
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-map-location-dot select-icon"></i>
+                            <select id="prefSelectDesktop" class="filter-select">
+                                <option value="">すべての都道府県</option>
+                            </select>
+                        </div>
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-layer-group select-icon"></i>
+                            <select id="editionSelectDesktop" class="filter-select">
+                                <option value="">すべての弾数</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button id="btnGeoLocation" class="btn-pill btn-pill-geo">
+                        <i class="fa-solid fa-crosshairs"></i> 現在地
+                    </button>
+
+                    <button id="btnRandomCard" class="btn-pill btn-pill-random mobile-only">
+                        <i class="fa-solid fa-dice"></i> おまかせ
+                    </button>
+
+                    <button id="btnResetFilter" class="btn-pill btn-pill-reset">
+                        <i class="fa-solid fa-rotate-left"></i> リセット
+                    </button>
+                </div>
+            </div>
+
+            <!-- 地図要素 -->
+            <div id="map"></div>
+            
+            <!-- ローディングオーバーレイ -->
+            <div id="loadingOverlay" class="loading-overlay">
+                <div class="loading-card">
+                    <div class="spinner"></div>
+                    <p class="loading-text">データをよみこみ中...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- モバイル用 絞り込みフィルターモーダル / ボトムシート -->
+        <div id="filterDrawer" class="drawer-backdrop hidden">
+            <div class="drawer-card">
+                <div class="drawer-header">
+                    <h3><i class="fa-solid fa-sliders"></i> 条件で絞り込む</h3>
+                    <button id="btnCloseDrawer" class="btn-close-drawer">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="drawer-body">
+                    <div class="drawer-group">
+                        <label><i class="fa-solid fa-map-location-dot"></i> 都道府県:</label>
+                        <select id="prefSelectMobile" class="drawer-select">
+                            <option value="">すべての都道府県</option>
+                        </select>
+                    </div>
+                    <div class="drawer-group">
+                        <label><i class="fa-solid fa-layer-group"></i> 弾数:</label>
+                        <select id="editionSelectMobile" class="drawer-select">
+                            <option value="">すべての弾数</option>
+                        </select>
+                    </div>
+                    <div class="drawer-actions">
+                        <button id="btnApplyDrawer" class="btn-pop btn-apply-drawer">この条件で検索</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- カード詳細モーダル / ボトムシート -->
+        <div id="cardModal" class="modal-backdrop hidden">
+            <div class="modal-card">
+                <button id="btnCloseModal" class="btn-close-modal" title="閉じる">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+
+                <div class="modal-body">
+                    <!-- 左側：カード画像 -->
+                    <div class="card-image-section">
+                        <div class="image-frame" id="imageFrame">
+                            <img id="modalImg" src="" alt="マンホールカード画像" class="card-img" />
+                            <div class="image-zoom-hint">
+                                <i class="fa-solid fa-magnifying-glass-plus"></i> タップで拡大
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右側：カード詳細情報 -->
+                    <div class="card-info-section">
+                        <div class="card-badges">
+                            <span class="badge badge-pref" id="modalPref"></span>
+                            <span class="badge badge-edition" id="modalEdition"></span>
+                            <span class="badge badge-date" id="modalDate"></span>
+                        </div>
+
+                        <h2 class="modal-city" id="modalCity"></h2>
+                        <h3 class="modal-loc-name" id="modalLocName"></h3>
+
+                        <div class="info-list">
+                            <div class="info-item">
+                                <span class="info-label"><i class="fa-solid fa-location-dot"></i> 配布住所:</span>
+                                <span class="info-val" id="modalAddress"></span>
+                            </div>
+                            <div class="info-item" id="phoneContainer">
+                                <span class="info-label"><i class="fa-solid fa-phone"></i> 電話番号:</span>
+                                <span class="info-val" id="modalPhone"></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fa-solid fa-clock"></i> 配布時間:</span>
+                                <span class="info-val" id="modalHours"></span>
+                            </div>
+                            <div class="info-item" id="stockContainer">
+                                <span class="info-label"><i class="fa-solid fa-boxes-stacked"></i> 在庫状況:</span>
+                                <span class="info-val" id="modalStock"></span>
+                            </div>
+                        </div>
+
+                        <div class="modal-actions">
+                            <a id="btnNavGoogle" href="#" target="_blank" rel="noopener" class="btn-pop btn-nav">
+                                <i class="fa-solid fa-route"></i> Googleマップでルート案内
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 画像拡大ライトボックスモーダル -->
+        <div id="imageLightbox" class="lightbox-backdrop hidden">
+            <div class="lightbox-content">
+                <button id="btnCloseLightbox" class="btn-close-lightbox">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <img id="lightboxImg" src="" alt="マンホールカード拡大画像" />
+                <p class="lightbox-caption" id="lightboxCaption"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS Libraries -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- Custom Application Script -->
+    <script src="script.js"></script>
+</body>
+</html>
