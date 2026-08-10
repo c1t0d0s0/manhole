@@ -14,6 +14,9 @@ document.addEventListener("DOMContentLoaded", () => {
         "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
     ];
 
+    // --- Prefecture Order Mapping (北海道 -> 沖縄県) ---
+    const PREF_ORDER_MAP = new Map(JAPAN_PREFECTURES.map((p, i) => [p, i]));
+
     // --- State Variables ---
     let cardsData = [];
     let map = null;
@@ -22,6 +25,9 @@ document.addEventListener("DOMContentLoaded", () => {
     let activeCard = null;
     let todayOnlyFilter = false;
     let includeDiscontinued = false;
+    let currentSortMode = "pref"; // "pref" (北海道〜沖縄) | "nearest" (近い順)
+    let userLocation = null; // { lat: number, lng: number }
+    let openedFromGallery = false;
 
     // --- DOM Elements ---
     const loadingOverlay = document.getElementById("loadingOverlay");
@@ -35,6 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const prefSelectMobile = document.getElementById("prefSelectMobile");
     const editionSelectDesktop = document.getElementById("editionSelectDesktop");
     const editionSelectMobile = document.getElementById("editionSelectMobile");
+    const sortSelectMobile = document.getElementById("sortSelectMobile");
 
     // Buttons & Toggles
     const btnTodayFilter = document.getElementById("btnTodayFilter");
@@ -43,7 +50,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const discontinuedCheckMobile = document.getElementById("discontinuedCheckMobile");
     const discontinuedCheckGallery = document.getElementById("discontinuedCheckGallery");
     const btnGeoLocation = document.getElementById("btnGeoLocation");
+    const btnSortNearest = document.getElementById("btnSortNearest");
     const btnRandomCard = document.getElementById("btnRandomCard");
+    const btnResetFilter = document.getElementById("btnResetFilter");
     const btnMobileFilterToggle = document.getElementById("btnMobileFilterToggle");
 
     // Drawer Elements
@@ -83,6 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnCloseGallery = document.getElementById("btnCloseGallery");
     const galleryPrefSelect = document.getElementById("galleryPrefSelect");
     const galleryEditionSelect = document.getElementById("galleryEditionSelect");
+    const gallerySortSelect = document.getElementById("gallerySortSelect");
     const gallerySearchInput = document.getElementById("gallerySearchInput");
     const galleryGrid = document.getElementById("galleryGrid");
     const galleryEmpty = document.getElementById("galleryEmpty");
@@ -137,6 +147,36 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ----------------------------------------------------------------------
+    // 1.5. Distance & Sort Helper Functions
+    // ----------------------------------------------------------------------
+    function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+        const R = 6371; // km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    function formatDistance(km) {
+        if (km < 1) {
+            return `${Math.round(km * 1000)}m`;
+        }
+        return `${km.toFixed(1)}km`;
+    }
+
+    function sortCardsDataByPref() {
+        cardsData.sort((a, b) => {
+            const orderA = PREF_ORDER_MAP.has(a.pref) ? PREF_ORDER_MAP.get(a.pref) : 999;
+            const orderB = PREF_ORDER_MAP.has(b.pref) ? PREF_ORDER_MAP.get(b.pref) : 999;
+            if (orderA !== orderB) return orderA - orderB;
+            return (a.originalIndex || 0) - (b.originalIndex || 0);
+        });
+    }
+
+    // ----------------------------------------------------------------------
     // 2. CSV Data Loading & Processing
     // ----------------------------------------------------------------------
     function loadCSVData() {
@@ -146,7 +186,8 @@ document.addEventListener("DOMContentLoaded", () => {
             skipEmptyLines: true,
             complete: (results) => {
                 cardsData = results.data.filter(item => item.lat && item.lng);
-                cardsData.forEach(card => {
+                cardsData.forEach((card, index) => {
+                    card.originalIndex = index;
                     if (card.edition) {
                         const m = card.edition.match(/第(\d+)弾/);
                         if (m) {
@@ -155,6 +196,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     }
                 });
+
+                // デフォルトで北海道から沖縄の順にソート
+                sortCardsDataByPref();
+
                 console.log(`Loaded ${cardsData.length} cards with valid coordinates.`);
 
                 populateFilterDropdowns();
@@ -423,12 +468,25 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    function syncSortMode(mode) {
+        currentSortMode = mode;
+        if (btnSortNearest) {
+            btnSortNearest.classList.toggle("active", mode === "nearest");
+        }
+        if (gallerySortSelect) {
+            gallerySortSelect.value = mode;
+        }
+        if (sortSelectMobile) {
+            sortSelectMobile.value = mode;
+        }
+    }
+
     function getFilteredData() {
         const query = searchInput.value.trim().toLowerCase();
         const selectedPref = getSelectedPref();
         const selectedEdition = getSelectedEdition();
 
-        return cardsData.filter(card => {
+        const filtered = cardsData.filter(card => {
             // -1. Discontinued Filter (Default: exclude discontinued cards unless toggle is ON)
             if (!includeDiscontinued && isDiscontinuedCard(card)) {
                 return false;
@@ -467,6 +525,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
             return matchQuery && matchPref && matchEdition;
         });
+
+        // ソート適用
+        if (currentSortMode === "nearest" && userLocation) {
+            filtered.forEach(card => {
+                const cLat = parseFloat(card.lat);
+                const cLng = parseFloat(card.lng);
+                card._distance = (!isNaN(cLat) && !isNaN(cLng))
+                    ? calculateDistanceKm(userLocation.lat, userLocation.lng, cLat, cLng)
+                    : Infinity;
+            });
+            filtered.sort((a, b) => a._distance - b._distance);
+        } else {
+            // 都道府県順 (北海道→沖縄)
+            filtered.sort((a, b) => {
+                const orderA = PREF_ORDER_MAP.has(a.pref) ? PREF_ORDER_MAP.get(a.pref) : 999;
+                const orderB = PREF_ORDER_MAP.has(b.pref) ? PREF_ORDER_MAP.get(b.pref) : 999;
+                if (orderA !== orderB) return orderA - orderB;
+                return (a.originalIndex || 0) - (b.originalIndex || 0);
+            });
+        }
+
+        return filtered;
     }
 
     function applyFilters() {
@@ -535,8 +615,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // ----------------------------------------------------------------------
     // 5. Modal & Lightbox Logic
     // ----------------------------------------------------------------------
-    function openModal(card) {
+    function openModal(card, fromGallery = false) {
         activeCard = card;
+        openedFromGallery = fromGallery;
 
         modalImg.src = card.img_url || "https://via.placeholder.com/300x420?text=No+Image";
         modalImg.alt = `${card.city} マンホールカード`;
@@ -591,6 +672,13 @@ document.addEventListener("DOMContentLoaded", () => {
     function closeModal() {
         cardModal.classList.add("hidden");
         activeCard = null;
+
+        if (openedFromGallery) {
+            openedFromGallery = false;
+            if (galleryModal) {
+                galleryModal.classList.remove("hidden");
+            }
+        }
     }
 
     function openLightbox() {
@@ -608,20 +696,8 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderGallery() {
         if (!galleryGrid) return;
 
-        const selectedPref = (galleryPrefSelect && galleryPrefSelect.value) || "";
-        const selectedEdition = (galleryEditionSelect && galleryEditionSelect.value) || "";
-        const query = (gallerySearchInput && gallerySearchInput.value.trim().toLowerCase()) || "";
-
-        const filtered = cardsData.filter(card => {
-            if (!includeDiscontinued && isDiscontinuedCard(card)) return false;
-            if (selectedPref && card.pref !== selectedPref) return false;
-            if (selectedEdition && card.edition !== selectedEdition) return false;
-            if (query) {
-                const targetText = [card.city, card.loc_name, card.address, card.pref, card.edition].join(" ").toLowerCase();
-                if (!targetText.includes(query)) return false;
-            }
-            return true;
-        });
+        // getFilteredData() はすでにキーワード・都道府県・弾数・ソート順（北海道→沖縄 or 近い順）が適用されたデータを返す
+        const filtered = getFilteredData();
 
         if (galleryCountBadge) {
             galleryCountBadge.textContent = `${filtered.length.toLocaleString()} 件`;
@@ -638,6 +714,12 @@ document.addEventListener("DOMContentLoaded", () => {
         galleryGrid.innerHTML = filtered.map((card, idx) => {
             const isDisc = isDiscontinuedCard(card);
             const discBadgeHtml = isDisc ? '<span class="badge badge-discontinued">配布終了・休止</span>' : '';
+            
+            let distBadgeHtml = '';
+            if (userLocation && typeof card._distance === 'number' && isFinite(card._distance)) {
+                distBadgeHtml = `<span class="badge badge-distance"><i class="fa-solid fa-location-arrow"></i> ${formatDistance(card._distance)}</span>`;
+            }
+
             return `
                 <div class="gallery-card-item" data-idx="${idx}">
                     <div class="gallery-img-wrapper">
@@ -646,6 +728,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="gallery-card-badges">
                         <span class="badge badge-pref">${escapeHTML(card.pref)}</span>
                         <span class="badge badge-edition">${escapeHTML(card.edition)}</span>
+                        ${distBadgeHtml}
                         ${discBadgeHtml}
                     </div>
                     <div class="gallery-card-title">${escapeHTML(card.city)}</div>
@@ -669,7 +752,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     map.flyTo([lat, lng], 15, { duration: 1.2 });
                 }
 
-                openModal(targetCard);
+                openModal(targetCard, true);
             });
         });
     }
@@ -702,37 +785,73 @@ document.addEventListener("DOMContentLoaded", () => {
         openModal(randomCard);
     }
 
-    function locateUser() {
+    function locateUser(callback) {
         if (!navigator.geolocation) {
             alert("お使いのブラウザは現在地取得に対応していません。");
+            if (typeof callback === "function") callback(false);
             return;
         }
 
-        btnGeoLocation.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i>`;
+        if (btnGeoLocation) btnGeoLocation.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i>`;
 
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const lat = pos.coords.latitude;
                 const lng = pos.coords.longitude;
+                userLocation = { lat, lng };
 
-                btnGeoLocation.innerHTML = `<i class="fa-solid fa-crosshairs"></i> 現在地`;
-                map.flyTo([lat, lng], 13, { duration: 1.5 });
+                if (btnGeoLocation) btnGeoLocation.innerHTML = `<i class="fa-solid fa-crosshairs"></i> 現在地`;
+                if (map) {
+                    map.flyTo([lat, lng], 13, { duration: 1.5 });
 
-                L.circleMarker([lat, lng], {
-                    radius: 10,
-                    fillColor: "#0284C7",
-                    color: "#FFFFFF",
-                    weight: 3,
-                    opacity: 1,
-                    fillOpacity: 0.9
-                }).addTo(map).bindPopup("📍 あなたの現在地").openPopup();
+                    L.circleMarker([lat, lng], {
+                        radius: 10,
+                        fillColor: "#0284C7",
+                        color: "#FFFFFF",
+                        weight: 3,
+                        opacity: 1,
+                        fillOpacity: 0.9
+                    }).addTo(map).bindPopup("📍 あなたの現在地").openPopup();
+                }
+
+                if (typeof callback === "function") callback(true);
             },
             (err) => {
-                btnGeoLocation.innerHTML = `<i class="fa-solid fa-crosshairs"></i> 現在地`;
+                if (btnGeoLocation) btnGeoLocation.innerHTML = `<i class="fa-solid fa-crosshairs"></i> 現在地`;
                 alert("現在地を取得できませんでした。位置情報の利用を許可してください。");
+                if (typeof callback === "function") callback(false);
             },
             { timeout: 10000, enableHighAccuracy: true }
         );
+    }
+
+    function toggleSortNearest() {
+        if (currentSortMode === "nearest") {
+            syncSortMode("pref");
+            applyFilters();
+            if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                renderGallery();
+            }
+            return;
+        }
+
+        if (userLocation) {
+            syncSortMode("nearest");
+            applyFilters();
+            if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                renderGallery();
+            }
+        } else {
+            locateUser((success) => {
+                if (success) {
+                    syncSortMode("nearest");
+                    applyFilters();
+                    if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                        renderGallery();
+                    }
+                }
+            });
+        }
     }
 
     function openDrawer() {
@@ -833,17 +952,72 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    btnResetFilter.addEventListener("click", () => {
-        searchInput.value = "";
-        syncSelects("", "");
-        syncTodayFilter(false);
-        syncDiscontinuedFilter(false);
-        searchSuggestions.classList.add("hidden");
-        btnClearSearch.classList.add("hidden");
-        applyFilters();
-        renderGallery();
-        map.flyTo([36.5, 137.0], 5);
-    });
+    if (btnSortNearest) {
+        btnSortNearest.addEventListener("click", toggleSortNearest);
+    }
+
+    if (gallerySortSelect) {
+        gallerySortSelect.addEventListener("change", (e) => {
+            const val = e.target.value;
+            if (val === "nearest") {
+                if (userLocation) {
+                    syncSortMode("nearest");
+                    applyFilters();
+                    renderGallery();
+                } else {
+                    locateUser((success) => {
+                        if (success) {
+                            syncSortMode("nearest");
+                        } else {
+                            syncSortMode("pref");
+                        }
+                        applyFilters();
+                        renderGallery();
+                    });
+                }
+            } else {
+                syncSortMode("pref");
+                applyFilters();
+                renderGallery();
+            }
+        });
+    }
+
+    if (sortSelectMobile) {
+        sortSelectMobile.addEventListener("change", (e) => {
+            const val = e.target.value;
+            if (val === "nearest") {
+                if (userLocation) {
+                    syncSortMode("nearest");
+                } else {
+                    locateUser((success) => {
+                        if (success) {
+                            syncSortMode("nearest");
+                        } else {
+                            syncSortMode("pref");
+                        }
+                    });
+                }
+            } else {
+                syncSortMode("pref");
+            }
+        });
+    }
+
+    if (btnResetFilter) {
+        btnResetFilter.addEventListener("click", () => {
+            searchInput.value = "";
+            syncSelects("", "");
+            syncTodayFilter(false);
+            syncDiscontinuedFilter(false);
+            syncSortMode("pref");
+            searchSuggestions.classList.add("hidden");
+            btnClearSearch.classList.add("hidden");
+            applyFilters();
+            renderGallery();
+            map.flyTo([36.5, 137.0], 5);
+        });
+    }
 
     if (btnRandomCard) btnRandomCard.addEventListener("click", showRandomCard);
     btnGeoLocation.addEventListener("click", locateUser);
@@ -908,11 +1082,16 @@ document.addEventListener("DOMContentLoaded", () => {
     // キーボードショートカット
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
-            closeGalleryModal();
-            closeLightbox();
-            closeModal();
-            closeDrawer();
-            searchSuggestions.classList.add("hidden");
+            if (imageLightbox && !imageLightbox.classList.contains("hidden")) {
+                closeLightbox();
+            } else if (cardModal && !cardModal.classList.contains("hidden")) {
+                closeModal();
+            } else if (filterDrawer && !filterDrawer.classList.contains("hidden")) {
+                closeDrawer();
+            } else if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                closeGalleryModal();
+            }
+            if (searchSuggestions) searchSuggestions.classList.add("hidden");
         }
     });
 });

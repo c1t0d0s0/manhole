@@ -107,6 +107,10 @@
                         <i class="fa-solid fa-crosshairs"></i> <span class="pill-label">現在地</span>
                     </button>
 
+                    <button id="btnSortNearest" class="btn-pill btn-pill-nearest" title="現在地から近い順にカードを並び替え">
+                        <i class="fa-solid fa-location-arrow"></i> <span class="pill-label">近い順</span>
+                    </button>
+
                     <button id="btnRandomCard" class="btn-pill btn-pill-random">
                         <i class="fa-solid fa-dice"></i> <span class="pill-label">おまかせ</span>
                     </button>
@@ -149,6 +153,13 @@
                         <label><i class="fa-solid fa-layer-group"></i> 弾数:</label>
                         <select id="editionSelectMobile" class="drawer-select">
                             <option value="">すべての弾数</option>
+                        </select>
+                    </div>
+                    <div class="drawer-group">
+                        <label><i class="fa-solid fa-arrow-down-short-wide"></i> 並び順:</label>
+                        <select id="sortSelectMobile" class="drawer-select">
+                            <option value="pref">北海道→沖縄順</option>
+                            <option value="nearest">現在地から近い順</option>
                         </select>
                     </div>
                     <div class="drawer-group drawer-checkbox-group">
@@ -250,6 +261,14 @@
                             <i class="fa-solid fa-layer-group select-icon"></i>
                             <select id="galleryEditionSelect" class="filter-select">
                                 <option value="">すべての弾数</option>
+                            </select>
+                        </div>
+
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-arrow-down-short-wide select-icon"></i>
+                            <select id="gallerySortSelect" class="filter-select">
+                                <option value="pref">並び順: 北海道→沖縄</option>
+                                <option value="nearest">並び順: 現在地から近い順</option>
                             </select>
                         </div>
 

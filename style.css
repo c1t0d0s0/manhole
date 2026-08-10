@@ -418,6 +418,20 @@ body, html {
     color: #FFFFFF;
 }
 
+.btn-pill-nearest {
+    background: #FFFFFF;
+    color: #8B5CF6;
+    border-color: #DDD6FE;
+}
+
+.btn-pill-nearest.active {
+    background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%);
+    color: #FFFFFF;
+    border-color: #DDD6FE;
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);
+    transform: translateY(-2px);
+}
+
 .btn-pill-random {
     background: #FFFFFF;
     color: var(--primary-orange);
@@ -827,6 +841,12 @@ body, html {
 .badge-edition {
     background: #FEF3C7;
     color: var(--primary-orange);
+}
+
+.badge-distance {
+    background: #F3E8FF;
+    color: #7C3AED;
+    border: 1px solid #DDD6FE;
 }
 
 .badge-date {
