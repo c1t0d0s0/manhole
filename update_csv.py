@@ -47,7 +47,7 @@ PREF_CODE_MAP = {
 
 def normalize_pref(img_url, raw_pref, address, city):
     """画像URLの都道府県コードまたは住所から標準47都道府県名を特定"""
-    m = re.search(r'/mhc/(\d{2})-\d+', img_url)
+    m = re.search(r'/mhc/(\d{2})[-_]', img_url)
     if m:
         code = m.group(1)
         if code in PREF_CODE_MAP:
@@ -59,6 +59,17 @@ def normalize_pref(img_url, raw_pref, address, city):
             return p
 
     return "東京都"  # デフォルトフォールバック
+
+
+def normalize_edition(edition_str):
+    """弾数を2桁ゼロ埋め表記（例: 第2弾 -> 第02弾）に統一"""
+    if not edition_str:
+        return ""
+    m = re.search(r"第(\d+)弾", edition_str)
+    if m:
+        num = int(m.group(1))
+        return f"第{num:02d}弾"
+    return edition_str
 
 
 def fetch_gk_p_html():
@@ -132,14 +143,15 @@ def parse_cards_from_html(html_content):
             stock_url = stock_a["href"] if stock_a and "href" in stock_a.attrs else ""
             stock_text = tds[6].get_text(" ", strip=True)
 
-            # 都道府県を標準名称に正規化
+            # 都道府県および弾数の正規化
             clean_pref = normalize_pref(img_url, current_pref, address, city)
+            clean_edition = normalize_edition(edition)
 
             records.append({
                 "pref": clean_pref,
                 "city": city,
                 "img_url": img_url,
-                "edition": edition,
+                "edition": clean_edition,
                 "release_date": release_date,
                 "loc_name": loc_name or (loc_lines[0] if loc_lines else ""),
                 "address": address,
@@ -185,26 +197,60 @@ def geocode_gsi(query):
     return None, None
 
 
+ADDRESS_OVERRIDES = {
+    ("東京23区（A001）", "CADAN大手町"): "東京都千代田区大手町2-6-3",
+    ("東京23区(C101)", "練馬区立大泉図書館"): "東京都練馬区大泉学園町2-21-1",
+    ("高松市(A001)", "瓦町FLAG 市民サービスセンター"): "香川県高松市常磐町1-3-1",
+    ("奈良市", "奈良町南観光案内所"): "奈良県奈良市中新屋町26",
+    ("白石町", "【平日】佐賀県白石町役場生活環境課（庁舎2階）"): "佐賀県杵島郡白石町大字福田1247"
+}
+
+
 def geocode_record(record):
-    """多段階フォールバックで緯度経度を取得"""
-    lat, lng = geocode_gsi(record["address"])
-    if lat is not None:
-        record["lat"] = f"{lat:.6f}"
-        record["lng"] = f"{lng:.6f}"
-        return record
+    """多段階フォールバックで緯度経度を取得（都道府県名を補完）"""
+    city = record.get("city", "")
+    loc_name = record.get("loc_name", "")
+    pref = record.get("pref", "")
+    address = record.get("address", "")
+    city_clean = re.sub(r"[\(（].*?[\)）]", "", city).strip()
 
-    lat, lng = geocode_gsi(record["loc_name"])
-    if lat is not None:
-        record["lat"] = f"{lat:.6f}"
-        record["lng"] = f"{lng:.6f}"
-        return record
+    # 0. 個別住所オーバーライドの確認
+    override_key = (city, loc_name)
+    if override_key in ADDRESS_OVERRIDES:
+        override_addr = ADDRESS_OVERRIDES[override_key]
+        lat, lng = geocode_gsi(override_addr)
+        if lat is not None:
+            record["lat"] = f"{lat:.6f}"
+            record["lng"] = f"{lng:.6f}"
+            record["address"] = override_addr
+            return record
 
-    city_clean = re.sub(r"[\(（].*?[\)）]", "", record["city"]).strip()
-    lat, lng = geocode_gsi(city_clean)
-    if lat is not None:
-        record["lat"] = f"{lat:.6f}"
-        record["lng"] = f"{lng:.6f}"
-        return record
+    # 1. 住所で検索
+    if address:
+        query = address if pref in address else f"{pref} {address}"
+        lat, lng = geocode_gsi(query)
+        if lat is not None:
+            record["lat"] = f"{lat:.6f}"
+            record["lng"] = f"{lng:.6f}"
+            return record
+
+    # 2. 配布場所名称で検索
+    if loc_name:
+        query = loc_name if pref in loc_name else f"{pref} {loc_name}"
+        lat, lng = geocode_gsi(query)
+        if lat is not None:
+            record["lat"] = f"{lat:.6f}"
+            record["lng"] = f"{lng:.6f}"
+            return record
+
+    # 3. 市町村名で検索
+    if city_clean:
+        query = city_clean if pref in city_clean else f"{pref} {city_clean}"
+        lat, lng = geocode_gsi(query)
+        if lat is not None:
+            record["lat"] = f"{lat:.6f}"
+            record["lng"] = f"{lng:.6f}"
+            return record
 
     return record
 

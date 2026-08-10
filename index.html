@@ -20,7 +20,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     
     <!-- Custom Styles -->
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?202608101506">
 </head>
 <body>
     <div id="app">
@@ -48,8 +48,8 @@
                     <span class="stat-badge" id="cardCountBadge">
                         <i class="fa-solid fa-location-dot"></i> <span id="totalCardsCount">0</span> 枚
                     </span>
-                    <button class="btn-pop btn-random desktop-only" id="btnRandomCardDesktop" title="ランダムなカードを表示">
-                        <i class="fa-solid fa-dice"></i> おまかせ
+                    <button class="btn-pop btn-gallery" id="btnHeaderGallery" title="カード一覧を表示">
+                        <i class="fa-solid fa-border-all"></i> <span class="header-btn-text">カード一覧</span>
                     </button>
                 </div>
             </div>
@@ -95,16 +95,24 @@
                         </div>
                     </div>
 
-                    <button id="btnGeoLocation" class="btn-pill btn-pill-geo">
-                        <i class="fa-solid fa-crosshairs"></i> 現在地
+                    <button id="btnTodayFilter" class="btn-pill btn-pill-today" title="本日配布・入手可能なカードのみ表示">
+                        <i class="fa-solid fa-calendar-check"></i> <span class="pill-label">本日</span>
                     </button>
 
-                    <button id="btnRandomCard" class="btn-pill btn-pill-random mobile-only">
-                        <i class="fa-solid fa-dice"></i> おまかせ
+                    <button id="btnDiscontinuedFilter" class="btn-pill btn-pill-discontinued" title="配布終了・一時中止のカードも含めて表示">
+                        <i class="fa-solid fa-ban"></i> <span class="pill-label">終了含む</span>
+                    </button>
+
+                    <button id="btnGeoLocation" class="btn-pill btn-pill-geo">
+                        <i class="fa-solid fa-crosshairs"></i> <span class="pill-label">現在地</span>
+                    </button>
+
+                    <button id="btnRandomCard" class="btn-pill btn-pill-random">
+                        <i class="fa-solid fa-dice"></i> <span class="pill-label">おまかせ</span>
                     </button>
 
                     <button id="btnResetFilter" class="btn-pill btn-pill-reset">
-                        <i class="fa-solid fa-rotate-left"></i> リセット
+                        <i class="fa-solid fa-rotate-left"></i> <span class="pill-label">リセット</span>
                     </button>
                 </div>
             </div>
@@ -143,6 +151,18 @@
                             <option value="">すべての弾数</option>
                         </select>
                     </div>
+                    <div class="drawer-group drawer-checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="todayCheckMobile" class="drawer-checkbox">
+                            <span><i class="fa-solid fa-calendar-check"></i> 本日配布中のカードのみ表示</span>
+                        </label>
+                    </div>
+                    <div class="drawer-group drawer-checkbox-group drawer-discontinued-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="discontinuedCheckMobile" class="drawer-checkbox">
+                            <span><i class="fa-solid fa-ban"></i> 配布終了・一時中止カードも含む</span>
+                        </label>
+                    </div>
                     <div class="drawer-actions">
                         <button id="btnApplyDrawer" class="btn-pop btn-apply-drawer">この条件で検索</button>
                     </div>
@@ -174,6 +194,7 @@
                             <span class="badge badge-pref" id="modalPref"></span>
                             <span class="badge badge-edition" id="modalEdition"></span>
                             <span class="badge badge-date" id="modalDate"></span>
+                            <span class="badge" id="modalTodayStatus"></span>
                         </div>
 
                         <h2 class="modal-city" id="modalCity"></h2>
@@ -208,6 +229,56 @@
             </div>
         </div>
 
+        <!-- 全マンホールカード一覧 (ギャラリー) モーダル -->
+        <div id="galleryModal" class="gallery-backdrop hidden">
+            <div class="gallery-container">
+                <div class="gallery-header">
+                    <div class="gallery-title-area">
+                        <h2><i class="fa-solid fa-border-all"></i> マンホールカード 一覧</h2>
+                        <span class="gallery-count-badge" id="galleryCountBadge">0 件</span>
+                    </div>
+
+                    <div class="gallery-filter-bar">
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-map-location-dot select-icon"></i>
+                            <select id="galleryPrefSelect" class="filter-select">
+                                <option value="">すべての都道府県</option>
+                            </select>
+                        </div>
+
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-layer-group select-icon"></i>
+                            <select id="galleryEditionSelect" class="filter-select">
+                                <option value="">すべての弾数</option>
+                            </select>
+                        </div>
+
+                        <div class="gallery-search-box">
+                            <i class="fa-solid fa-magnifying-glass gallery-search-icon"></i>
+                            <input type="text" id="gallerySearchInput" class="gallery-search-input" placeholder="市町村名・キーワード..." autocomplete="off">
+                        </div>
+
+                        <label class="checkbox-label gallery-checkbox-label">
+                            <input type="checkbox" id="discontinuedCheckGallery" class="drawer-checkbox">
+                            <span><i class="fa-solid fa-ban"></i> 配布終了も含む</span>
+                        </label>
+
+                        <button id="btnCloseGallery" class="btn-close-modal" title="閉じる">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="gallery-body">
+                    <div id="galleryGrid" class="gallery-grid"></div>
+                    <div id="galleryEmpty" class="gallery-empty hidden">
+                        <i class="fa-solid fa-magnifying-glass fa-3x"></i>
+                        <p>条件に一致するマンホールカードが見つかりませんでした。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 画像拡大ライトボックスモーダル -->
         <div id="imageLightbox" class="lightbox-backdrop hidden">
             <div class="lightbox-content">
@@ -226,6 +297,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     
     <!-- Custom Application Script -->
-    <script src="script.js"></script>
+    <script src="script.js?202608101506"></script>
 </body>
 </html>
