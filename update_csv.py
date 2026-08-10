@@ -12,6 +12,7 @@ import csv
 import re
 import json
 import time
+import copy
 import urllib.request
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -58,7 +59,7 @@ def normalize_pref(img_url, raw_pref, address, city):
         if p in combined_text:
             return p
 
-    return "東京都"  # デフォルトフォールバック
+    return "東京都"
 
 
 def normalize_edition(edition_str):
@@ -121,30 +122,52 @@ def parse_cards_from_html(html_content):
             if a_tag:
                 loc_name = a_tag.get_text(strip=True)
 
-            # HTMLタグ（br/p/div）を改行文字に置換して複数行テキストとして抽出
-            import copy
             td_copy = copy.copy(loc_td)
             for tag in td_copy.find_all(["br", "p", "div"]):
                 tag.replace_with("\n" + tag.get_text())
 
-            loc_lines = [line.strip() for line in td_copy.get_text().split("\n") if line.strip()]
+            raw_lines = [line.strip() for line in td_copy.get_text().split("\n") if line.strip()]
 
-            if not loc_name and loc_lines:
-                loc_name = loc_lines[0]
+            if not loc_name and raw_lines:
+                loc_name = raw_lines[0]
+
+            loc_name_clean = re.sub(r'^[【\(\[（].*?[】\)\]）]\s*', '', loc_name).strip()
+
+            cleaned_lines = []
+            for line in raw_lines:
+                lc = re.sub(r'^[【\(\[（].*?[】\)\]）]\s*', '', line)
+                lc = re.sub(r'^(住所|問合せ先|電話)[:：]\s*', '', lc)
+                lc = re.sub(r'^[①②③④⑤※]\s*', '', lc).strip()
+                if lc:
+                    cleaned_lines.append((line, lc))
 
             address = ""
             phone = ""
-            for line in loc_lines:
-                if any(kw in line for kw in ["電話", "TEL", "tel", "Tel"]) and not phone:
-                    phone = line
-                elif not address and re.search(r"(都|道|府|県|市|区|町|村)", line) and line != loc_name:
-                    address = line
+            for l_orig, l_clean in cleaned_lines:
+                if any(kw in l_clean.lower() for kw in ["電話", "tel", "問合せ先", "※"]) and not phone:
+                    if "電話" in l_clean or "tel" in l_clean.lower():
+                        phone = l_orig
+                    continue
 
-            if not address and loc_lines:
-                for line in loc_lines:
-                    if line != loc_name and not any(kw in line for kw in ["電話", "TEL", "Tel", "問合せ"]):
-                        address = line
-                        break
+                is_pref_addr = any(p in l_clean for p in JAPAN_PREFECTURES)
+                has_num = bool(re.search(r'\d|一|二|三|四|五|六|七|八|九|十|丁目|番地|号|地割|字', l_clean))
+                has_admin_unit = bool(re.search(r'(市|区|町|村)', l_clean))
+                is_facility_only = bool(re.search(r'(役所|役場|課|窓口|センター|館|公園|駅|事業団|協会|室|庁舎)$', l_clean))
+
+                if not address:
+                    if is_pref_addr:
+                        address = l_clean
+                    elif has_admin_unit and has_num and not is_facility_only:
+                        address = l_clean
+
+            if not address:
+                for l_orig, l_clean in cleaned_lines:
+                    if any(kw in l_clean.lower() for kw in ["電話", "tel", "問合せ先", "※"]):
+                        continue
+                    if re.search(r"(都|道|府|県|市|区|町|村)", l_clean) and l_clean != loc_name:
+                        if not re.search(r"^[【※]", l_orig):
+                            address = l_clean
+                            break
 
             hours = tds[5].get_text(" ", strip=True)
 
@@ -152,7 +175,6 @@ def parse_cards_from_html(html_content):
             stock_url = stock_a["href"] if stock_a and "href" in stock_a.attrs else ""
             stock_text = tds[6].get_text(" ", strip=True)
 
-            # 都道府県および弾数の正規化
             clean_pref = normalize_pref(img_url, current_pref, address, city)
             clean_edition = normalize_edition(edition)
 
@@ -162,7 +184,7 @@ def parse_cards_from_html(html_content):
                 "img_url": img_url,
                 "edition": clean_edition,
                 "release_date": release_date,
-                "loc_name": loc_name or (loc_lines[0] if loc_lines else ""),
+                "loc_name": loc_name_clean or loc_name,
                 "address": address,
                 "phone": phone,
                 "hours": hours,
@@ -176,14 +198,17 @@ def parse_cards_from_html(html_content):
     return records
 
 
-def geocode_gsi(query):
+def geocode_gsi(query, pref=None):
     """国土地理院 ジオコーディング API を呼び出す"""
     if not query:
         return None, None
 
-    q_clean = re.sub(r"[\(（].*?[\)）]", "", query).strip()
+    q_clean = re.sub(r"[【\(\[（].*?[】\)\]）]", "", query).strip()
+    q_clean = re.sub(r"^(住所|問合せ先|電話)[:：]\s*", "", q_clean).strip()
+    q_clean = re.sub(r"^[①②③④⑤※]\s*", "", q_clean).strip()
+
     m_addr = re.match(r"^(.*?\d+(?:-\d+)*)", q_clean)
-    if m_addr:
+    if m_addr and any(kw in q_clean for kw in ["市", "区", "町", "村", "丁目"]):
         q_clean = m_addr.group(1)
 
     if not q_clean:
@@ -200,6 +225,11 @@ def geocode_gsi(query):
         with urllib.request.urlopen(req, timeout=4) as res:
             data = json.loads(res.read().decode("utf-8"))
             if data and len(data) > 0:
+                title = data[0]["properties"].get("title", "")
+                if pref and (title == pref or title in JAPAN_PREFECTURES):
+                    return None, None
+                if not pref and title in JAPAN_PREFECTURES:
+                    return None, None
                 coords = data[0]["geometry"]["coordinates"]
                 return coords[1], coords[0]  # lat, lng
     except Exception:
@@ -219,7 +249,7 @@ def geocode_record(record):
     # 1. 住所で検索
     if address:
         query = address if pref in address else f"{pref} {address}"
-        lat, lng = geocode_gsi(query)
+        lat, lng = geocode_gsi(query, pref)
         if lat is not None:
             record["lat"] = f"{lat:.6f}"
             record["lng"] = f"{lng:.6f}"
@@ -228,16 +258,30 @@ def geocode_record(record):
     # 2. 配布場所名称で検索
     if loc_name:
         query = loc_name if pref in loc_name else f"{pref} {loc_name}"
-        lat, lng = geocode_gsi(query)
+        lat, lng = geocode_gsi(query, pref)
         if lat is not None:
             record["lat"] = f"{lat:.6f}"
             record["lng"] = f"{lng:.6f}"
             return record
 
+        # 2b. 部署名・課名を取り除いて施設名で再検索
+        loc_sub = re.sub(
+            r"\s*(地域振興課|総務部|区政推進課|生活環境課|上下水道局|上下水道部|上下水道課|下水道局|下水道課|商工振興課|産業連携担当|経営総務課|管理担当|総務課|経営企画課|お客さまセンター|業務担当窓口|当直室|宿直室|守衛室|窓口|広報課|観光課|産業振興課|環境課|都市計画課|建設課|維持課|管理課|市民課|窓口課).*$",
+            "",
+            loc_name
+        ).strip()
+        if loc_sub and loc_sub != loc_name:
+            query = loc_sub if pref in loc_sub else f"{pref} {loc_sub}"
+            lat, lng = geocode_gsi(query, pref)
+            if lat is not None:
+                record["lat"] = f"{lat:.6f}"
+                record["lng"] = f"{lng:.6f}"
+                return record
+
     # 3. 市町村名で検索
     if city_clean:
         query = city_clean if pref in city_clean else f"{pref} {city_clean}"
-        lat, lng = geocode_gsi(query)
+        lat, lng = geocode_gsi(query, pref)
         if lat is not None:
             record["lat"] = f"{lat:.6f}"
             record["lng"] = f"{lng:.6f}"
