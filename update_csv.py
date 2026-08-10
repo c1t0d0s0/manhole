@@ -121,19 +121,28 @@ def parse_cards_from_html(html_content):
             if a_tag:
                 loc_name = a_tag.get_text(strip=True)
 
-            loc_lines = [line.strip() for line in loc_td.get_text("\n").split("\n") if line.strip()]
+            # HTMLタグ（br/p/div）を改行文字に置換して複数行テキストとして抽出
+            import copy
+            td_copy = copy.copy(loc_td)
+            for tag in td_copy.find_all(["br", "p", "div"]):
+                tag.replace_with("\n" + tag.get_text())
+
+            loc_lines = [line.strip() for line in td_copy.get_text().split("\n") if line.strip()]
+
+            if not loc_name and loc_lines:
+                loc_name = loc_lines[0]
 
             address = ""
             phone = ""
             for line in loc_lines:
-                if any(kw in line for kw in ["電話", "TEL", "tel", "Tel"]):
+                if any(kw in line for kw in ["電話", "TEL", "tel", "Tel"]) and not phone:
                     phone = line
                 elif not address and re.search(r"(都|道|府|県|市|区|町|村)", line) and line != loc_name:
                     address = line
 
             if not address and loc_lines:
                 for line in loc_lines:
-                    if re.search(r"(都|道|府|県|市|区|町|村)", line):
+                    if line != loc_name and not any(kw in line for kw in ["電話", "TEL", "Tel", "問合せ"]):
                         address = line
                         break
 
@@ -173,7 +182,9 @@ def geocode_gsi(query):
         return None, None
 
     q_clean = re.sub(r"[\(（].*?[\)）]", "", query).strip()
-    q_clean = re.sub(r"\d+階|\d+F|[A-Z]棟", "", q_clean).strip()
+    m_addr = re.match(r"^(.*?\d+(?:-\d+)*)", q_clean)
+    if m_addr:
+        q_clean = m_addr.group(1)
 
     if not q_clean:
         return None, None
@@ -197,15 +208,6 @@ def geocode_gsi(query):
     return None, None
 
 
-ADDRESS_OVERRIDES = {
-    ("東京23区（A001）", "CADAN大手町"): "東京都千代田区大手町2-6-3",
-    ("東京23区(C101)", "練馬区立大泉図書館"): "東京都練馬区大泉学園町2-21-1",
-    ("高松市(A001)", "瓦町FLAG 市民サービスセンター"): "香川県高松市常磐町1-3-1",
-    ("奈良市", "奈良町南観光案内所"): "奈良県奈良市中新屋町26",
-    ("白石町", "【平日】佐賀県白石町役場生活環境課（庁舎2階）"): "佐賀県杵島郡白石町大字福田1247"
-}
-
-
 def geocode_record(record):
     """多段階フォールバックで緯度経度を取得（都道府県名を補完）"""
     city = record.get("city", "")
@@ -213,17 +215,6 @@ def geocode_record(record):
     pref = record.get("pref", "")
     address = record.get("address", "")
     city_clean = re.sub(r"[\(（].*?[\)）]", "", city).strip()
-
-    # 0. 個別住所オーバーライドの確認
-    override_key = (city, loc_name)
-    if override_key in ADDRESS_OVERRIDES:
-        override_addr = ADDRESS_OVERRIDES[override_key]
-        lat, lng = geocode_gsi(override_addr)
-        if lat is not None:
-            record["lat"] = f"{lat:.6f}"
-            record["lng"] = f"{lng:.6f}"
-            record["address"] = override_addr
-            return record
 
     # 1. 住所で検索
     if address:
