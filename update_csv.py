@@ -218,6 +218,26 @@ def parse_cards_from_html(html_content):
     print(f'Extracted {len(records)} card records from table.')
     return records
 
+KANJI_NUM = {'一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10'}
+
+def norm_addr(text):
+    if not text: return ''
+    t = text
+    for k, v in KANJI_NUM.items():
+        t = t.replace(k, v)
+    t = re.sub(r'丁目|番地|番|号', '-', t)
+    t = re.sub(r'-+', '-', t)
+    t = re.sub(r'[\(（].*?[\)）]', '', t)
+    return t
+
+def pref_match(k_pref, c_pref):
+    if not k_pref or not c_pref: return False
+    return k_pref == c_pref or k_pref[:2] == c_pref[:2]
+
+def city_match(k_city, c_city):
+    if not k_city or not c_city: return False
+    return k_city == c_city or k_city in c_city or c_city in k_city
+
 def find_kml_match(card, kml_items):
     c_pref = card.get('pref', '')
     c_city_raw = card.get('city', '')
@@ -238,57 +258,55 @@ def find_kml_match(card, kml_items):
     c_loc = card.get('loc_name', '')
     c_addr = card.get('address', '')
 
-    def pref_match(k_pref, c_pref):
-        if not k_pref or not c_pref: return False
-        return k_pref == c_pref or k_pref[:2] == c_pref[:2]
+    c_full_text_norm = norm_addr(f'{c_loc} {c_addr}')
 
-    def city_match(k_city, c_city):
-        if not k_city or not c_city: return False
-        return k_city == c_city or k_city in c_city or c_city in k_city
+    # Priority 1: Match by facility name / address in KML description
+    # Handles cases where distribution location updated between card releases
+    if c_loc or c_addr:
+        for k in kml_items:
+            if pref_match(k['pref'], c_pref):
+                k_full_text_norm = norm_addr(k['raw_name'] + ' ' + ' '.join(k['desc_lines']))
+                
+                # Facility name match
+                c_loc_norm = norm_addr(c_loc)
+                if c_loc_norm and len(c_loc_norm) >= 3 and (c_loc_norm in k_full_text_norm or k_full_text_norm in c_loc_norm or c_loc_norm[:4] in k_full_text_norm):
+                    return k
+                
+                # Distinctive landmark keywords from address or location
+                keywords = []
+                m_lm = re.search(r'(ぜにがめプレイス|ぜにがめ|旧三河島|三河島|テクノプラザ|観光案内所)', f'{c_loc} {c_addr}')
+                if m_lm: keywords.append(m_lm.group(0))
+                
+                for kw in keywords:
+                    if len(kw) >= 3 and kw in k_full_text_norm:
+                        return k
 
-    # Rule 1: pref + city + card_id
+                # House number match (e.g. 8-25-1 or 2-6-3)
+                m_num = re.search(r'\d+-\d+-\d+', c_full_text_norm)
+                if m_num and len(m_num.group(0)) >= 5 and m_num.group(0) in k_full_text_norm:
+                    return k
+
+    # Priority 2: Match by pref + city + card_id (verifying ward/city consistency)
     if card_id:
         for k in kml_items:
             if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id:
+                desc_str = ' '.join(k['desc_lines'])
+                m_c_ward = re.search(r'([^\s]+?[区市町村])', c_addr or '')
+                m_k_ward = re.search(r'([^\s]+?[区市町村])', desc_str or '')
+                if m_c_ward and m_k_ward and m_c_ward.group(1) != m_k_ward.group(1) and ('23区' in c_city or '東京都' in c_pref):
+                    continue
                 return k
 
-    # Rule 2: pref + card_id (within same prefecture)
-    if card_id:
-        matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and k['card_id'] == card_id]
-        if len(matches) == 1:
-            return matches[0]
-        elif len(matches) > 1:
-            for k in matches:
-                if (c_city and c_city[:2] in k['raw_name']) or (c_loc and c_loc[:4] in k['raw_desc']):
-                    return k
-
-    # Rule 3: pref + city + edition number
+    # Priority 3: Match by pref + city + edition number
     if c_ed_num is not None:
         matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['ed_num'] == c_ed_num]
         if len(matches) == 1:
             return matches[0]
-        elif len(matches) > 1:
-            for m in matches:
-                desc_str = ' '.join(m['desc_lines'])
-                if (c_loc and c_loc in desc_str) or (c_addr and c_addr in desc_str):
-                    return m
-            return matches[0]
 
-    # Rule 4: pref + city + location/address substring
-    matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city)]
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        for m in matches:
-            desc_str = ' '.join(m['desc_lines'])
-            if (c_loc and len(c_loc)>2 and c_loc in desc_str) or (c_addr and len(c_addr)>3 and c_addr in desc_str):
-                return m
-
-    # Rule 5: pref + location/address substring
-    for k in kml_items:
-        if pref_match(k['pref'], c_pref) or c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc']:
-            desc_str = ' '.join(k['desc_lines'])
-            if (c_loc and len(c_loc)>3 and c_loc in desc_str) or (c_addr and len(c_addr)>4 and c_addr in desc_str):
+    # Priority 4: Fallback to card_id match
+    if card_id:
+        for k in kml_items:
+            if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id:
                 return k
 
     return None
