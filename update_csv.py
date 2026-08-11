@@ -219,21 +219,28 @@ def parse_cards_from_html(html_content):
     return records
 
 def find_kml_match(card, kml_items):
+    c_pref = card.get('pref', '')
+    c_city_raw = card.get('city', '')
+    c_city = clean_city_name(c_city_raw)
+    city_card_id = extract_card_id(c_city_raw)
+
     img_url = card.get('img_url', '')
     img_card_id = ''
     m_img = re.search(r'/mhc/\d+-[^-]+-([A-Z0-9]+)', img_url)
     if m_img:
         img_card_id = normalize_code(m_img.group(1))
 
-    c_pref = card.get('pref', '')
-    c_city_raw = card.get('city', '')
-    c_city = clean_city_name(c_city_raw)
-    city_card_id = extract_card_id(c_city_raw)
-    card_id = img_card_id or city_card_id
+    # Prioritize explicit card_id from city name (e.g. B101 in '東京23区(B101)')
+    # over truncated image code (e.g. B1 in '13-100-B1-01.jpg')
+    card_id = city_card_id or img_card_id
 
     c_ed_num = extract_edition_num(card.get('edition', ''))
     c_loc = card.get('loc_name', '')
     c_addr = card.get('address', '')
+
+    def pref_match(k_pref, c_pref):
+        if not k_pref or not c_pref: return False
+        return k_pref == c_pref or k_pref[:2] == c_pref[:2]
 
     def city_match(k_city, c_city):
         if not k_city or not c_city: return False
@@ -242,22 +249,22 @@ def find_kml_match(card, kml_items):
     # Rule 1: pref + city + card_id
     if card_id:
         for k in kml_items:
-            if (k['pref'] == c_pref or k['pref'] in c_pref or c_pref in k['pref']) and city_match(k['city'], c_city) and k['card_id'] == card_id:
+            if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id:
                 return k
 
-    # Rule 2: pref + card_id (for map items with missing/different city naming e.g. UR都市機構)
+    # Rule 2: pref + card_id (within same prefecture)
     if card_id:
-        matches = [k for k in kml_items if k['card_id'] == card_id]
+        matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and k['card_id'] == card_id]
         if len(matches) == 1:
             return matches[0]
         elif len(matches) > 1:
             for k in matches:
-                if c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc'] or (c_city and c_city[:2] in k['raw_name']):
+                if (c_city and c_city[:2] in k['raw_name']) or (c_loc and c_loc[:4] in k['raw_desc']):
                     return k
 
     # Rule 3: pref + city + edition number
     if c_ed_num is not None:
-        matches = [k for k in kml_items if (k['pref'] == c_pref or c_pref[:2] in k['pref']) and city_match(k['city'], c_city) and k['ed_num'] == c_ed_num]
+        matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['ed_num'] == c_ed_num]
         if len(matches) == 1:
             return matches[0]
         elif len(matches) > 1:
@@ -268,7 +275,7 @@ def find_kml_match(card, kml_items):
             return matches[0]
 
     # Rule 4: pref + city + location/address substring
-    matches = [k for k in kml_items if (k['pref'] == c_pref or c_pref[:2] in k['pref']) and city_match(k['city'], c_city)]
+    matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city)]
     if len(matches) == 1:
         return matches[0]
     elif len(matches) > 1:
@@ -279,7 +286,7 @@ def find_kml_match(card, kml_items):
 
     # Rule 5: pref + location/address substring
     for k in kml_items:
-        if c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc']:
+        if pref_match(k['pref'], c_pref) or c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc']:
             desc_str = ' '.join(k['desc_lines'])
             if (c_loc and len(c_loc)>3 and c_loc in desc_str) or (c_addr and len(c_addr)>4 and c_addr in desc_str):
                 return k
