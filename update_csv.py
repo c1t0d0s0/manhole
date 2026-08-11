@@ -180,13 +180,29 @@ def clean_facility_name(name):
     curr = name
     while curr != prev:
         prev = curr
-        curr = re.sub(r'\s*(地域振興課|総務部|区政推進課|生活環境課|上下水道局|上下水道部|上下水道課|下水道局|下水道課|商工振興課|産業連携担当|経営総務課|管理担当|総務課|経営企画課|お客さまセンター|業務担当窓口|当直室|宿直室|守衛室|窓口|広報課|観光課|産業振興課|環境課|都市計画課|建設課|維持課|管理課|市民課|窓口課|管理事務所|事務所|分館|本館|受付|体育館|資料館|博物館|図書館|文化会館|案内所|情報館|物産館|伝承館|センター|ビル|号館).*$', '', curr).strip()
+        curr = re.sub(r'\s*(地域振興課|総務部|区政推進課|生活環境課|上下水道局|上下水道部|上下水道課|下水道局|下水道課|商工振興課|産業連携担当|経営総務課|管理担当|総務課|経営企画課|お客さまセンター|業務担当窓口|当直室|宿直室|守衛室|窓口|広報課|観光課|産業振興課|環境課|都市計画課|建設課|維持課|管理課|市民課|窓口課|管理事務所|事務所|分館|本館|受付|体育館|資料館|博物館|図書館|文化会館|案内所|情報館|物産館|伝承館|センター|ビル|号館|内|横|隣|前).*$', '', curr).strip()
     return curr
 
 def clean_landmark(text):
-    m = re.search(r'(.*?[駅港島橋城園])', text)
+    m = re.search(r'(.*?[駅港島橋城園役庁署宮局場])', text)
     if m: return m.group(1).strip()
     return text.strip()
+
+def extract_paren_queries(text):
+    queries = []
+    if not text: return queries
+    matches = re.findall(r'[\(（](.*?)[\)）]', text)
+    for m in matches:
+        p = m.strip()
+        if p:
+            queries.append(p)
+            c = clean_facility_name(p)
+            if c and c != p: queries.append(c)
+            m_st = re.search(r'(.*?[役庁所館所場社庁場館宮院校局駅署])', p)
+            if m_st:
+                c_st = clean_facility_name(m_st.group(1))
+                if c_st: queries.append(c_st)
+    return queries
 
 def geocode_record(record):
     pref = record.get('pref', '')
@@ -207,12 +223,8 @@ def geocode_record(record):
                 address_cand = (f'{lat:.6f}', f'{lng:.6f}')
 
     queries = []
-    if address:
-        m = re.search(r'[\(（](.*?)[\)）]', address)
-        if m:
-            p = m.group(1).strip()
-            queries.append(p)
-            queries.append(clean_landmark(p))
+    queries.extend(extract_paren_queries(loc_name))
+    queries.extend(extract_paren_queries(address))
 
     if loc_name:
         queries.append(loc_name)
