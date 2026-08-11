@@ -218,18 +218,6 @@ def parse_cards_from_html(html_content):
     print(f'Extracted {len(records)} card records from table.')
     return records
 
-KANJI_NUM = {'一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10'}
-
-def norm_addr(text):
-    if not text: return ''
-    t = text
-    for k, v in KANJI_NUM.items():
-        t = t.replace(k, v)
-    t = re.sub(r'丁目|番地|番|号', '-', t)
-    t = re.sub(r'-+', '-', t)
-    t = re.sub(r'[\(（].*?[\)）]', '', t)
-    return t
-
 def pref_match(k_pref, c_pref):
     if not k_pref or not c_pref: return False
     return k_pref == c_pref or k_pref[:2] == c_pref[:2]
@@ -250,63 +238,69 @@ def find_kml_match(card, kml_items):
     if m_img:
         img_card_id = normalize_code(m_img.group(1))
 
-    # Prioritize explicit card_id from city name (e.g. B101 in '東京23区(B101)')
-    # over truncated image code (e.g. B1 in '13-100-B1-01.jpg')
+    # Prioritize explicit card_id from city name (e.g. O101 in '東京23区(O101)')
+    # over truncated image code (e.g. O1 in '13-100-O1-01.jpg')
     card_id = city_card_id or img_card_id
-
     c_ed_num = extract_edition_num(card.get('edition', ''))
     c_loc = card.get('loc_name', '')
     c_addr = card.get('address', '')
 
-    c_full_text_norm = norm_addr(f'{c_loc} {c_addr}')
+    # Priority 1: Match by specific landmark override (only for known relocated cards like A001 <-> D101)
+    distinctive_keywords = []
+    m_lm = re.search(r'(ぜにがめプレイス|ぜにがめ|旧三河島|三河島)', f'{c_loc} {c_addr}')
+    if m_lm: distinctive_keywords.append(m_lm.group(0))
 
-    # Priority 1: Match by facility name / address in KML description
-    # Handles cases where distribution location updated between card releases
-    if c_loc or c_addr:
+    if distinctive_keywords:
         for k in kml_items:
             if pref_match(k['pref'], c_pref):
-                k_full_text_norm = norm_addr(k['raw_name'] + ' ' + ' '.join(k['desc_lines']))
-                
-                # Facility name match
-                c_loc_norm = norm_addr(c_loc)
-                if c_loc_norm and len(c_loc_norm) >= 3 and (c_loc_norm in k_full_text_norm or k_full_text_norm in c_loc_norm or c_loc_norm[:4] in k_full_text_norm):
-                    return k
-                
-                # Distinctive landmark keywords from address or location
-                keywords = []
-                m_lm = re.search(r'(ぜにがめプレイス|ぜにがめ|旧三河島|三河島|テクノプラザ|観光案内所)', f'{c_loc} {c_addr}')
-                if m_lm: keywords.append(m_lm.group(0))
-                
-                for kw in keywords:
-                    if len(kw) >= 3 and kw in k_full_text_norm:
+                raw_text = k['raw_name'] + ' ' + ' '.join(k['desc_lines'])
+                for kw in distinctive_keywords:
+                    if len(kw) >= 3 and kw in raw_text:
                         return k
 
-                # House number match (e.g. 8-25-1 or 2-6-3)
-                m_num = re.search(r'\d+-\d+-\d+', c_full_text_norm)
-                if m_num and len(m_num.group(0)) >= 5 and m_num.group(0) in k_full_text_norm:
-                    return k
-
-    # Priority 2: Match by pref + city + card_id (verifying ward/city consistency)
+    # Priority 2: Match by pref + city + card_id
     if card_id:
         for k in kml_items:
             if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id:
-                desc_str = ' '.join(k['desc_lines'])
-                m_c_ward = re.search(r'([^\s]+?[区市町村])', c_addr or '')
-                m_k_ward = re.search(r'([^\s]+?[区市町村])', desc_str or '')
-                if m_c_ward and m_k_ward and m_c_ward.group(1) != m_k_ward.group(1) and ('23区' in c_city or '東京都' in c_pref):
-                    continue
                 return k
 
-    # Priority 3: Match by pref + city + edition number
+    # Priority 3: Match by pref + card_id (within same prefecture)
+    if card_id:
+        matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and k['card_id'] == card_id]
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            for k in matches:
+                if (c_city and c_city[:2] in k['raw_name']) or (c_loc and c_loc[:4] in k['raw_desc']):
+                    return k
+
+    # Priority 4: Match by pref + city + edition number
     if c_ed_num is not None:
         matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['ed_num'] == c_ed_num]
         if len(matches) == 1:
             return matches[0]
+        elif len(matches) > 1:
+            for m in matches:
+                desc_str = ' '.join(m['desc_lines'])
+                if (c_loc and c_loc in desc_str) or (c_addr and c_addr in desc_str):
+                    return m
+            return matches[0]
 
-    # Priority 4: Fallback to card_id match
-    if card_id:
-        for k in kml_items:
-            if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id:
+    # Priority 5: Match by pref + city + location/address substring
+    matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city)]
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        for m in matches:
+            desc_str = ' '.join(m['desc_lines'])
+            if (c_loc and len(c_loc)>2 and c_loc in desc_str) or (c_addr and len(c_addr)>3 and c_addr in desc_str):
+                return m
+
+    # Priority 6: Fallback to pref + location/address substring
+    for k in kml_items:
+        if pref_match(k['pref'], c_pref) or c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc']:
+            desc_str = ' '.join(k['desc_lines'])
+            if (c_loc and len(c_loc)>3 and c_loc in desc_str) or (c_addr and len(c_addr)>4 and c_addr in desc_str):
                 return k
 
     return None
