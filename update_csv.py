@@ -8,9 +8,11 @@ import time
 import copy
 import urllib.request
 import urllib.parse
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
 GK_P_URL = 'https://www.gk-p.jp/mhcard/?pref=zenkoku'
+MYMAPS_KML_URL = 'https://www.google.com/maps/d/kml?mid=1Rl4-vnlJZA5zfnVmPd1d0Szsq9o&forcekml=1'
 CSV_FILENAME = 'manhole_cards.csv'
 GEOCODE_THREADS = 10
 
@@ -52,11 +54,96 @@ def normalize_edition(ed):
     m = re.search(r'第(\d+)弾', ed)
     return f'第{int(m.group(1)):02d}弾' if m else ed
 
+def normalize_code(code_str):
+    if not code_str: return ''
+    m = re.search(r'([A-Za-z]+)\s*[-_]?\s*(\d+)', code_str)
+    if m:
+        prefix = m.group(1).upper()
+        num = int(m.group(2))
+        return f'{prefix}{num:03d}'
+    return code_str.upper()
+
+def extract_card_id(text):
+    if not text: return ''
+    m = re.search(r'[（\(]([A-Z0-9\-_]+)[）\)]', text)
+    if m:
+        return normalize_code(m.group(1))
+    return ''
+
+def clean_kml_name(name):
+    return re.sub(r'^[【\(\[（].*?[】\)\]）]\s*', '', name).strip()
+
+def clean_city_name(city):
+    c = re.sub(r'[（\(].*?[）\)]', '', city).strip()
+    c = re.sub(r'^[【\(\[（].*?[】\)\]）]\s*', '', c).strip()
+    return c
+
+def extract_edition_num(text):
+    if not text: return None
+    m = re.search(r'第\s*(\d+)\s*[弾騨戦]? ', text) or re.search(r'第\s*(\d+)', text)
+    return int(m.group(1)) if m else None
+
 def fetch_gk_p_html():
-    print(f'Fetching data from {GK_P_URL} ...')
+    print(f'Fetching card data from {GK_P_URL} ...')
     req = urllib.request.Request(GK_P_URL, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, timeout=15) as res:
         return res.read().decode('utf-8', errors='replace')
+
+def fetch_kml_data():
+    print(f'Fetching Google My Maps KML data...')
+    req = urllib.request.Request(MYMAPS_KML_URL, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=15) as res:
+        return res.read().decode('utf-8', errors='replace')
+
+def parse_kml_placemarks(kml_content):
+    root = ET.fromstring(kml_content)
+    ns = {'kml': 'http://www.opengis.net/kml/2.2'}
+    placemarks = root.findall('.//kml:Placemark', ns)
+    items = []
+    for pm in placemarks:
+        name = pm.find('kml:name', ns).text if pm.find('kml:name', ns) is not None else ''
+        desc = pm.find('kml:description', ns).text if pm.find('kml:description', ns) is not None else ''
+        coords_text = pm.find('.//kml:coordinates', ns).text.strip() if pm.find('.//kml:coordinates', ns) is not None else ''
+        if not coords_text: continue
+        lng, lat = coords_text.split(',')[:2]
+        
+        clean_name = clean_kml_name(name)
+        card_id = extract_card_id(clean_name)
+        name_no_id = re.sub(r'[（\(].*?[）\)]', '', clean_name).strip()
+        parts = re.split(r'[\s\u3000]+', name_no_id)
+        pref = parts[0] if len(parts) > 0 else ''
+        city = parts[1] if len(parts) > 1 else ''
+        
+        desc_lines = [l.strip() for l in re.split(r'<br\s*/?>|\n', desc) if l.strip()]
+        ed_num = None
+        for line in desc_lines[:3]:
+            ed_num = extract_edition_num(line)
+            if ed_num is not None: break
+        
+        loc_name = ''
+        address = ''
+        for line in desc_lines:
+            if not loc_name and not extract_edition_num(line) and not any(p in line for p in JAPAN_PREFECTURES) and not line.startswith('電話') and not line.startswith('TEL'):
+                loc_name = line
+            elif loc_name and not address and any(p in line for p in JAPAN_PREFECTURES):
+                address = line
+
+        items.append({
+            'raw_name': name,
+            'clean_name': clean_name,
+            'pref': pref,
+            'city': clean_city_name(city),
+            'card_id': card_id,
+            'ed_num': ed_num,
+            'lat': f'{float(lat):.6f}',
+            'lng': f'{float(lng):.6f}',
+            'desc_lines': desc_lines,
+            'raw_desc': desc,
+            'kml_loc': loc_name,
+            'kml_addr': address
+        })
+    print(f'Extracted {len(items)} placemarks from Google My Maps KML.')
+    return items
 
 def parse_cards_from_html(html_content):
     from bs4 import BeautifulSoup
@@ -131,6 +218,74 @@ def parse_cards_from_html(html_content):
     print(f'Extracted {len(records)} card records from table.')
     return records
 
+def find_kml_match(card, kml_items):
+    img_url = card.get('img_url', '')
+    img_card_id = ''
+    m_img = re.search(r'/mhc/\d+-[^-]+-([A-Z0-9]+)', img_url)
+    if m_img:
+        img_card_id = normalize_code(m_img.group(1))
+
+    c_pref = card.get('pref', '')
+    c_city_raw = card.get('city', '')
+    c_city = clean_city_name(c_city_raw)
+    city_card_id = extract_card_id(c_city_raw)
+    card_id = img_card_id or city_card_id
+
+    c_ed_num = extract_edition_num(card.get('edition', ''))
+    c_loc = card.get('loc_name', '')
+    c_addr = card.get('address', '')
+
+    def city_match(k_city, c_city):
+        if not k_city or not c_city: return False
+        return k_city == c_city or k_city in c_city or c_city in k_city
+
+    # Rule 1: pref + city + card_id
+    if card_id:
+        for k in kml_items:
+            if (k['pref'] == c_pref or k['pref'] in c_pref or c_pref in k['pref']) and city_match(k['city'], c_city) and k['card_id'] == card_id:
+                return k
+
+    # Rule 2: pref + card_id (for map items with missing/different city naming e.g. UR都市機構)
+    if card_id:
+        matches = [k for k in kml_items if k['card_id'] == card_id]
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            for k in matches:
+                if c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc'] or (c_city and c_city[:2] in k['raw_name']):
+                    return k
+
+    # Rule 3: pref + city + edition number
+    if c_ed_num is not None:
+        matches = [k for k in kml_items if (k['pref'] == c_pref or c_pref[:2] in k['pref']) and city_match(k['city'], c_city) and k['ed_num'] == c_ed_num]
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            for m in matches:
+                desc_str = ' '.join(m['desc_lines'])
+                if (c_loc and c_loc in desc_str) or (c_addr and c_addr in desc_str):
+                    return m
+            return matches[0]
+
+    # Rule 4: pref + city + location/address substring
+    matches = [k for k in kml_items if (k['pref'] == c_pref or c_pref[:2] in k['pref']) and city_match(k['city'], c_city)]
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        for m in matches:
+            desc_str = ' '.join(m['desc_lines'])
+            if (c_loc and len(c_loc)>2 and c_loc in desc_str) or (c_addr and len(c_addr)>3 and c_addr in desc_str):
+                return m
+
+    # Rule 5: pref + location/address substring
+    for k in kml_items:
+        if c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc']:
+            desc_str = ' '.join(k['desc_lines'])
+            if (c_loc and len(c_loc)>3 and c_loc in desc_str) or (c_addr and len(c_addr)>4 and c_addr in desc_str):
+                return k
+
+    return None
+
 def geocode_gsi(query, pref=None):
     if not query:
         return None, None, False
@@ -183,11 +338,6 @@ def clean_facility_name(name):
         curr = re.sub(r'\s*(地域振興課|総務部|区政推進課|生活環境課|上下水道局|上下水道部|上下水道課|下水道局|下水道課|商工振興課|産業連携担当|経営総務課|管理担当|総務課|経営企画課|お客さまセンター|業務担当窓口|当直室|宿直室|守衛室|窓口|広報課|観光課|産業振興課|環境課|都市計画課|建設課|維持課|管理課|市民課|窓口課|管理事務所|事務所|分館|本館|受付|体育館|資料館|博物館|図書館|文化会館|案内所|情報館|物産館|伝承館|センター|ビル|号館|内|横|隣|前).*$', '', curr).strip()
     return curr
 
-def clean_landmark(text):
-    m = re.search(r'(.*?[駅港島橋城園役庁署宮局場])', text)
-    if m: return m.group(1).strip()
-    return text.strip()
-
 def extract_paren_queries(text):
     queries = []
     if not text: return queries
@@ -204,7 +354,7 @@ def extract_paren_queries(text):
                 if c_st: queries.append(c_st)
     return queries
 
-def geocode_record(record):
+def geocode_record_fallback(record):
     pref = record.get('pref', '')
     city = record.get('city', '')
     loc_name = record.get('loc_name', '')
@@ -257,22 +407,60 @@ def geocode_record(record):
 
     return record
 
+def process_record(args):
+    record, kml_items = args
+    match = find_kml_match(record, kml_items)
+    if match:
+        record['lat'], record['lng'] = match['lat'], match['lng']
+        if not record['loc_name'] and match['kml_loc']:
+            record['loc_name'] = match['kml_loc']
+        if not record['address'] and match['kml_addr']:
+            record['address'] = match['kml_addr']
+        return record, True
+
+    # Fallback to GSI geocoding if not in KML
+    res = geocode_record_fallback(record)
+    return res, False
+
 def main():
     start_time = time.time()
+    try:
+        kml_content = fetch_kml_data()
+        kml_items = parse_kml_placemarks(kml_content)
+    except Exception as e:
+        print(f'Warning: Could not fetch Google My Maps KML: {e}')
+        kml_items = []
+
     html = fetch_gk_p_html()
     records = parse_cards_from_html(html)
-    print(f'Geocoding {len(records)} records using {GEOCODE_THREADS} threads...')
+
+    print(f'Geocoding {len(records)} records (Google My Maps + GSI fallback)...')
+    
+    kml_matched = 0
+    geocoded_records = []
+    
+    tasks = [(r, kml_items) for r in records]
     with ThreadPoolExecutor(max_workers=GEOCODE_THREADS) as executor:
-        geocoded = list(executor.map(geocode_record, records))
-    success = sum(1 for r in geocoded if r['lat'] and r['lng'])
+        results = list(executor.map(process_record, tasks))
+
+    for rec, was_kml in results:
+        geocoded_records.append(rec)
+        if was_kml:
+            kml_matched += 1
+
+    success = sum(1 for r in geocoded_records if r['lat'] and r['lng'])
     print(f'Geocoding completed: {success} / {len(records)} ({success/len(records)*100:.1f}%)')
+    print(f'  - High-precision Google My Maps coordinates: {kml_matched} cards ({kml_matched/len(records)*100:.1f}%)')
+    print(f'  - GSI Geocoding API fallback: {success - kml_matched} cards')
+
     fieldnames = ['pref','city','img_url','edition','release_date','loc_name','address','phone','hours','stock_text','stock_url','lat','lng']
     csv_path = os.path.join(os.path.dirname(__file__), CSV_FILENAME)
     with open(csv_path, 'w', encoding='utf-8', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(geocoded)
-    print(f'Successfully saved {len(geocoded)} records to {CSV_FILENAME} in {time.time()-start_time:.2f} seconds!')
+        writer.writerows(geocoded_records)
+    print(f'Successfully saved {len(geocoded_records)} records to {CSV_FILENAME} in {time.time()-start_time:.2f} seconds!')
 
 if __name__ == '__main__':
     main()
+
