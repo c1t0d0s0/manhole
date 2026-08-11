@@ -226,6 +226,24 @@ def city_match(k_city, c_city):
     if not k_city or not c_city: return False
     return k_city == c_city or k_city in c_city or c_city in k_city
 
+def is_location_conflict(card, kml_item):
+    c_addr = card.get('address', '')
+    k_desc = ' '.join(kml_item['desc_lines'])
+    if not c_addr or not k_desc: return False
+
+    # Extract town name (e.g. 外神田 vs 九段南, 青戸 vs 有明)
+    m_c = re.search(r'(?:都|府|県|市|区|町|村)\s*([^\s\d\-_]+?)(?:\d+|-|丁目|番地)', c_addr)
+    m_k = re.search(r'(?:都|府|県|市|区|町|村)\s*([^\s\d\-_]+?)(?:\d+|-|丁目|番地)', k_desc)
+
+    if m_c and m_k:
+        c_town = m_c.group(1)
+        k_town = m_k.group(1)
+        if len(c_town) >= 2 and len(k_town) >= 2 and c_town != k_town:
+            if c_town not in k_desc and k_town not in c_addr:
+                return True
+
+    return False
+
 def find_kml_match(card, kml_items):
     c_pref = card.get('pref', '')
     c_city_raw = card.get('city', '')
@@ -245,7 +263,7 @@ def find_kml_match(card, kml_items):
     c_loc = card.get('loc_name', '')
     c_addr = card.get('address', '')
 
-    # Priority 1: Match by specific landmark override (only for known relocated cards like A001 <-> D101)
+    # Priority 1: Landmark override for known relocated cards (e.g., A001 <-> D101)
     distinctive_keywords = []
     m_lm = re.search(r'(ぜにがめプレイス|ぜにがめ|旧三河島|三河島)', f'{c_loc} {c_addr}')
     if m_lm: distinctive_keywords.append(m_lm.group(0))
@@ -258,49 +276,41 @@ def find_kml_match(card, kml_items):
                     if len(kw) >= 3 and kw in raw_text:
                         return k
 
-    # Priority 2: Match by pref + city + card_id
+    # Priority 2: Match by pref + city + card_id (checking no town/location conflict)
     if card_id:
-        for k in kml_items:
-            if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id:
-                return k
+        candidates = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['card_id'] == card_id]
+        for k in candidates:
+            if is_location_conflict(card, k):
+                continue
+            return k
 
-    # Priority 3: Match by pref + card_id (within same prefecture)
+    # Priority 3: Match by pref + card_id (within same prefecture, checking no location conflict)
     if card_id:
         matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and k['card_id'] == card_id]
-        if len(matches) == 1:
-            return matches[0]
-        elif len(matches) > 1:
-            for k in matches:
-                if (c_city and c_city[:2] in k['raw_name']) or (c_loc and c_loc[:4] in k['raw_desc']):
-                    return k
+        for k in matches:
+            if not is_location_conflict(card, k):
+                return k
 
     # Priority 4: Match by pref + city + edition number
     if c_ed_num is not None:
         matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city) and k['ed_num'] == c_ed_num]
-        if len(matches) == 1:
-            return matches[0]
-        elif len(matches) > 1:
-            for m in matches:
-                desc_str = ' '.join(m['desc_lines'])
-                if (c_loc and c_loc in desc_str) or (c_addr and c_addr in desc_str):
-                    return m
-            return matches[0]
+        for m in matches:
+            desc_str = ' '.join(m['desc_lines'])
+            if not is_location_conflict(card, m) and ((c_loc and c_loc in desc_str) or (c_addr and c_addr in desc_str)):
+                return m
 
     # Priority 5: Match by pref + city + location/address substring
     matches = [k for k in kml_items if pref_match(k['pref'], c_pref) and city_match(k['city'], c_city)]
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        for m in matches:
-            desc_str = ' '.join(m['desc_lines'])
-            if (c_loc and len(c_loc)>2 and c_loc in desc_str) or (c_addr and len(c_addr)>3 and c_addr in desc_str):
-                return m
+    for m in matches:
+        desc_str = ' '.join(m['desc_lines'])
+        if not is_location_conflict(card, m) and ((c_loc and len(c_loc)>2 and c_loc in desc_str) or (c_addr and len(c_addr)>3 and c_addr in desc_str)):
+            return m
 
     # Priority 6: Fallback to pref + location/address substring
     for k in kml_items:
         if pref_match(k['pref'], c_pref) or c_pref[:2] in k['raw_name'] or c_pref[:2] in k['raw_desc']:
             desc_str = ' '.join(k['desc_lines'])
-            if (c_loc and len(c_loc)>3 and c_loc in desc_str) or (c_addr and len(c_addr)>4 and c_addr in desc_str):
+            if not is_location_conflict(card, k) and ((c_loc and len(c_loc)>3 and c_loc in desc_str) or (c_addr and len(c_addr)>4 and c_addr in desc_str)):
                 return k
 
     return None
