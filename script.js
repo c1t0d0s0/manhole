@@ -366,88 +366,133 @@ document.addEventListener("DOMContentLoaded", () => {
         const day = targetDate.getDate();
         const dayOfWeek = targetDate.getDay(); // 0: Sun, 1: Mon, ..., 6: Sat
         const isHoliday = isJapaneseHoliday(targetDate);
-        const isWeekendOrHoliday = dayOfWeek === 0 || dayOfWeek === 6 || isHoliday;
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isWeekendOrHoliday = isWeekend || isHoliday;
         const nthWeek = Math.ceil(day / 7);
 
         // 1. 年末年始判定 (12/29 - 1/3 など)
-        if ((month === 12 && day >= 29) || (month === 1 && day <= 3)) {
-            if (/年末年始|12\/29|12\/30|12\/31|1\/1|1\/2|1\/3/.test(hoursText)) {
-                return { isAvailable: false, label: "🔴 年末年始休止", badgeClass: "badge-today-closed" };
+        if ((month === 12 && day >= 28) || (month === 1 && day <= 5)) {
+            const yearEndMatch = hoursText.match(/12\s*[\/月]\s*(\d{1,2})\s*日?\s*[～~ー-]\s*1\s*[\/月]\s*(\d{1,2})\s*日?/);
+            if (yearEndMatch) {
+                const startDay = parseInt(yearEndMatch[1], 10);
+                const endDay = parseInt(yearEndMatch[2], 10);
+                if ((month === 12 && day >= startDay) || (month === 1 && day <= endDay)) {
+                    return { isAvailable: false, label: "🔴 年末年始休止", badgeClass: "badge-today-closed" };
+                }
+            } else if ((month === 12 && day >= 29) || (month === 1 && day <= 3)) {
+                if (/年末年始/.test(hoursText)) {
+                    return { isAvailable: false, label: "🔴 年末年始休止", badgeClass: "badge-today-closed" };
+                }
             }
         }
 
-        // 2. 「年中無休」フラグチェック（定休日チェックのみスキップし、営業時間判定へ進む）
-        const isNonStop365 = hoursText.includes("年中無休");
+        // 2. 年中無休・無休フラグ
+        const isNonStop = /年中無休|（無休）|【無休】/.test(hoursText);
 
-        if (!isNonStop365) {
-            // 3. 土日祝日の配布休止判定
-            if (isWeekendOrHoliday) {
-                const hasWeekendOpeningHeader = /【(休日|土日|土・日|土曜|日曜|祝日|土日祝|土・日・祝|土日祝日|土日・祝日|土・日・祝日|祝日・休日)】|役場で配布/.test(hoursText);
-                if (!hasWeekendOpeningHeader) {
-                    if (/(土日|土・日|祝日|休日).*?(お休み|休館|配布.*?なし|除き|除く)/.test(hoursText)) {
-                        return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
-                    }
-                }
-            }
+        // 3. 配布継続フラグ（休館日でも別窓口/宿直室/役場等で配布している場合）
+        const hasAlternativeWindowOnClosure = /休館日.*?配布|休み.*?配布|土日.*?配布|役場.*?配布|当直|宿直|警備員|守衛/.test(hoursText);
 
-            // 4. 平日のみ判定
-            if (!isWeekendOrHoliday && /平日のみ.*?お休み/.test(hoursText)) {
-                return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
-            }
-
-            // 5. 曜日ごとの定休日チェック（第N週指定対応）
-            const dayNames = {
-                0: ["日曜日", "日曜", "日"],
-                1: ["月曜日", "月曜", "月"],
-                2: ["火曜日", "火曜", "火"],
-                3: ["水曜日", "水曜", "水"],
-                4: ["木曜日", "木曜", "木"],
-                5: ["金曜日", "金曜", "金"],
-                6: ["土曜日", "土曜", "土"]
+        if (!isNonStop && !hasAlternativeWindowOnClosure) {
+            // Regex patterns for each day of week (0: Sun, 1: Mon, ..., 6: Sat)
+            const dayPatterns = {
+                0: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:日曜日|日曜(?![祝月火水木金土])|土日祝日?|土・日・祝|土・日|土日(?![祝月火水木金]))/,
+                1: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:月曜日|月曜(?![祝火水木金土日])|月・火|月〜水)/,
+                2: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:火曜日|火曜(?![祝月水木金土日])|火・水)/,
+                3: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:水曜日|水曜(?![祝月火木金土日])|水・木)/,
+                4: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:木曜日|木曜(?![祝月火水金土日])|木・金)/,
+                5: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:金曜日|金曜(?![祝月火水木土日]))/,
+                6: /(?:第[1-5１-５一-五1-5、・,＆＆\/・|または]*|最終)?(?:毎週)?(?:土曜日|土曜(?![祝日月火水木金])|土日祝日?|土・日・祝|土・日|土日(?![祝日月火水木]))/
             };
 
-            const todayNames = dayNames[dayOfWeek] || [];
-            for (const name of todayNames) {
-                const regex = new RegExp(`((?:第[1-5１-５一-五1-5、・,＆＆\\/・|または]*|最終)?(?:\\s*[月火水木金土日]曜?日?)*?\\s*${name}.*?(?:お休み|定休|休館|休み))`, 'g');
-                let match;
-                while ((match = regex.exec(hoursText)) !== null) {
-                    const matchedStr = match[1];
-                    const idx = matchedStr.lastIndexOf(name);
-                    const prefix = matchedStr.slice(Math.max(0, idx - 15), idx);
+            // Normalize fullwidth colons and tildes
+            const normHours = hoursText.replace(/[：]/g, ":").replace(/[～〜ー]/g, "～");
 
-                    if (prefix.includes("第") || prefix.includes("最終")) {
-                        if (prefix.includes("最終")) {
-                            const lastDayOfMonth = new Date(targetDate.getFullYear(), month, 0).getDate();
-                            if (day + 7 <= lastDayOfMonth) {
-                                continue; // 今日は最終週ではない
+            // Split by major sentence delimiters (do not split by comma '、')
+            const sentences = normHours.split(/[。\n※;；]|\s*(?=【|ただし|但し|なお|休館日|定休日)/);
+
+            for (const sent of sentences) {
+                const s = sent.trim();
+                if (!s) continue;
+
+                const isClosingSentence = /(お休み|定休|休館|休み|休止|休業|閉館|配布.*?なし|配布.*?行いません|配布.*?ありません|除き|除く)/.test(s);
+                if (!isClosingSentence) continue;
+
+                // Remove opening hours segments like 【土日祝】9:00～18:00 from this sentence
+                const sWithoutOpeningSlots = s.replace(/【[^】]*】\s*\d{1,2}:\d{2}\s*～\s*\d{1,2}:\d{2}/g, "");
+
+                if (/(お休み|定休|休館|休み|休止|休業|閉館|配布.*?なし|配布.*?行いません|配布.*?ありません|除き|除く)/.test(sWithoutOpeningSlots)) {
+                    const dayPat = dayPatterns[dayOfWeek];
+                    const match = sWithoutOpeningSlots.match(dayPat);
+
+                    if (match) {
+                        const matchedToken = match[0];
+
+                        // Check for Nth week constraint
+                        if (matchedToken.includes("第") || matchedToken.includes("最終")) {
+                            if (matchedToken.includes("最終")) {
+                                const lastDayOfMonth = new Date(targetDate.getFullYear(), month, 0).getDate();
+                                if (day + 7 <= lastDayOfMonth) {
+                                    continue; // Not last week
+                                }
+                            } else {
+                                const specWeeks = parseNthWeeks(matchedToken);
+                                if (specWeeks.length > 0 && !specWeeks.includes(nthWeek)) {
+                                    continue; // Not today's Nth week
+                                }
                             }
-                        } else {
-                            const specWeeks = parseNthWeeks(prefix);
-                            if (specWeeks.length > 0 && !specWeeks.includes(nthWeek)) {
-                                continue; // 今日は指定された第N週ではないのでこの定休ルールは適用外
+                        }
+
+                        // Holiday exception check (e.g. 祝日の場合は開館 / 祝日の場合は翌日)
+                        if (isHoliday && /(祝日|休日).*?(除く|翌日|開館|開園)/.test(sWithoutOpeningSlots)) {
+                            return { isAvailable: true, label: "🟢 本日配布日", badgeClass: "badge-today-open" };
+                        }
+
+                        return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
+                    }
+
+                    // National holiday closure check
+                    if (isHoliday) {
+                        if (/(祝日|休日).*?(お休み|休館|休み|休業|閉館|配布.*?なし|除く|除き)/.test(sWithoutOpeningSlots)) {
+                            if (!/(祝日|休日).*?(開館|開園|翌日)/.test(sWithoutOpeningSlots)) {
+                                return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
                             }
                         }
                     }
-
-                    // 例外: 祝日の場合は翌日休 / 祝日除く（今日が祝日なら開いている）
-                    if (isHoliday && /(祝日|休日).*?(除く|翌日|開館)/.test(matchedStr)) {
-                        return { isAvailable: true, label: "🟢 本日配布日", badgeClass: "badge-today-open" };
-                    }
-
-                    return { isAvailable: false, label: "🔴 本日定休", badgeClass: "badge-today-closed" };
                 }
             }
         }
 
-        // 6. 営業時間外（現在時刻との比較判定）
+        // 4. 営業時間外（現在時刻との比較判定）
         let timeMatch = null;
+        const normHours = hoursText.replace(/[：]/g, ":").replace(/[～〜ー]/g, "～");
+
         if (isWeekendOrHoliday) {
-            timeMatch = hoursText.match(/【(?:土日祝|休日|土・日・祝|土日|土・日|祝日)】\s*(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+            timeMatch = normHours.match(/【(?:土日祝|休日|土・日・祝|土日|土・日|祝日|土日祝日|土日・祝日|土、日、祝日|土曜|日曜)】\s*(\d{1,2}):(\d{2})\s*～\s*(\d{1,2}):(\d{2})/);
         } else {
-            timeMatch = hoursText.match(/【平日】\s*(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+            timeMatch = normHours.match(/【(?:平日|月～金|月〜金|平日昼間)】\s*(\d{1,2}):(\d{2})\s*～\s*(\d{1,2}):(\d{2})/);
         }
+
+        // Seasonal slots (e.g. 【4月～10月】9:00～19:00 【11月～3月】9:00～18:00)
         if (!timeMatch) {
-            timeMatch = hoursText.match(/(\d{1,2})[：:](\d{2})\s*[～~ー-]\s*(\d{1,2})[：:](\d{2})/);
+            const seasonMatches = normHours.matchAll(/【(\d{1,2})月?\s*～\s*(\d{1,2})月?】\s*(\d{1,2}):(\d{2})\s*～\s*(\d{1,2}):(\d{2})/g);
+            for (const sm of seasonMatches) {
+                const startM = parseInt(sm[1], 10);
+                const endM = parseInt(sm[2], 10);
+                let inSeason = false;
+                if (startM <= endM) {
+                    inSeason = month >= startM && month <= endM;
+                } else {
+                    inSeason = month >= startM || month <= endM;
+                }
+                if (inSeason) {
+                    timeMatch = [sm[0], sm[3], sm[4], sm[5], sm[6]];
+                    break;
+                }
+            }
+        }
+
+        if (!timeMatch) {
+            timeMatch = normHours.match(/(\d{1,2}):(\d{2})\s*～\s*(\d{1,2}):(\d{2})/);
         }
 
         if (timeMatch) {
