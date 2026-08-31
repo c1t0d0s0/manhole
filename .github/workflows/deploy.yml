@@ -24,6 +24,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Google Analytics config
+        env:
+          GTM_ID: ${{ vars.GTM_ID || secrets.GTM_ID }}
+        run: |
+          if [ -n "$GTM_ID" ]; then
+            echo "const GTM_ID = '${GTM_ID}';" > config.js
+            echo "config.js generated successfully"
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
