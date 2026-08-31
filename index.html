@@ -6,6 +6,26 @@
     <title>マンホールカード マップ！ | 全国の配布場所・デザイン検索</title>
     <meta name="description" content="全国のマンホールカード配布場所とデザインを地図で探せるポップで楽しい検索サイト！市町村名検索、配布時間、在庫情報もチェックできます。">
     
+    <!-- Google Analytics (config.jsが存在しGTM_IDが定義されている場合に初期化) -->
+    <script src="config.js"></script>
+    <script>
+        (function() {
+            var gtmId = (typeof GTM_ID !== 'undefined' && GTM_ID) ? GTM_ID : (typeof window !== 'undefined' && window.GTM_ID ? window.GTM_ID : null);
+            if (gtmId) {
+                var script = document.createElement('script');
+                script.async = true;
+                script.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(gtmId);
+                document.head.appendChild(script);
+
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                window.gtag = gtag;
+                gtag('js', new Date());
+                gtag('config', gtmId);
+            }
+        })();
+    </script>
+    
     <!-- Google Fonts: Zen Maru Gothic -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
