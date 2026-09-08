@@ -171,7 +171,7 @@ body, html {
     flex-direction: column;
     gap: 8px;
     pointer-events: none;
-    max-width: 900px;
+    max-width: 1100px;
     margin: 0 auto;
 }
 
@@ -315,8 +315,10 @@ body, html {
     gap: 8px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 2px 0;
+    padding: 4px 6px;
     width: 100%;
+    box-sizing: border-box;
+    scrollbar-width: none;
 }
 
 .floating-pill-bar::-webkit-scrollbar {
@@ -416,6 +418,7 @@ body, html {
 .btn-pill-geo {
     background: linear-gradient(135deg, var(--sky-blue) 0%, var(--primary-blue) 100%);
     color: #FFFFFF;
+    border-color: #38BDF8;
 }
 
 .btn-pill-nearest {
@@ -1334,10 +1337,17 @@ body, html {
     }
 
     .floating-pill-bar {
-        flex-wrap: wrap;
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
         gap: 6px;
-        overflow-x: visible;
-        padding: 0;
+        padding: 4px 16px 6px 4px;
+        scrollbar-width: none;
+    }
+
+    .floating-pill-bar::-webkit-scrollbar {
+        display: none;
     }
 
     .btn-filter-toggle {
@@ -1399,3 +1409,511 @@ body, html {
         font-size: 13px;
     }
 }
+
+/* ==========================================================================
+   コレクション管理 (所有カード) & 機種変更データ移行スタイル
+   ========================================================================== */
+
+/* マーカー: 所持済みカード */
+.pop-manhole-marker.marker-owned {
+    filter: drop-shadow(0 4px 10px rgba(16, 185, 129, 0.45));
+}
+.pop-manhole-marker.marker-owned:hover {
+    filter: drop-shadow(0 6px 14px rgba(16, 185, 129, 0.6));
+}
+
+/* ヘッダー: コレクション進捗バッジ */
+.stat-badge-collection {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    color: #92400E;
+    border: 1.5px solid #F59E0B;
+    cursor: pointer;
+    transition: var(--transition);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.stat-badge-collection:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+.stat-badge-collection i {
+    color: #D97706;
+}
+.badge-sub-pct {
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0.9;
+}
+
+/* ピルバー: 所持フィルターボタン */
+.btn-pill-owned {
+    background: #FFFFFF;
+    color: #92400E;
+    border-color: #FCD34D;
+}
+.btn-pill-owned.mode-unowned {
+    background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+    color: #FFFFFF;
+    border-color: #075985;
+}
+.btn-pill-owned.mode-owned {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    color: #FFFFFF;
+    border-color: #047857;
+}
+
+/* カード詳細モーダル: 所持セクション */
+.card-owned-section {
+    margin: 12px 0 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.btn-owned-toggle {
+    width: 100%;
+    padding: 12px 18px;
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    border: 2px dashed #CBD5E1;
+    background: #F8FAFC;
+    color: #64748B;
+    transition: var(--transition);
+}
+.btn-owned-toggle:hover {
+    background: #F1F5F9;
+    border-color: #94A3B8;
+    transform: translateY(-2px);
+}
+.btn-owned-toggle.is-owned {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    color: #FFFFFF;
+    border: 2px solid #047857;
+    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+}
+.btn-owned-toggle.is-owned:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+}
+
+.owned-detail-box {
+    background: #F8FAFC;
+    border: 1.5px solid #E2E8F0;
+    border-radius: var(--radius-md);
+    padding: 12px;
+    animation: fadeIn 0.2s ease-out;
+}
+.owned-inputs {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 10px;
+}
+@media (max-width: 640px) {
+    .owned-inputs {
+        grid-template-columns: 1fr;
+    }
+}
+.owned-input-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.owned-input-item label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+.owned-date-input, .owned-memo-input {
+    padding: 7px 10px;
+    border: 1.5px solid #CBD5E1;
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+    background: #FFFFFF;
+    color: var(--text-main);
+    outline: none;
+    transition: border-color 0.2s;
+}
+.owned-date-input:focus, .owned-memo-input:focus {
+    border-color: var(--primary-blue);
+}
+
+/* ギャラリー: ゲット済みバッジ */
+.badge-owned {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    color: #FFFFFF;
+    font-weight: 800;
+}
+.gallery-card-item.is-owned-card {
+    border-color: #10B981;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+}
+.gallery-card-item.is-owned-card::after {
+    content: "✓ ゲット済";
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #10B981;
+    color: #FFFFFF;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 2px 7px;
+    border-radius: 9999px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    z-index: 2;
+}
+
+/* コレクション達成度 & 機種変更モーダル */
+.collection-modal-card {
+    max-width: 680px;
+    width: 92%;
+    max-height: 85vh;
+    max-height: 85dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+}
+.collection-modal-header {
+    padding: 20px 24px 14px;
+    background: linear-gradient(135deg, #FEF3C7 0%, #E0F2FE 100%);
+    border-bottom: 2px solid #E2E8F0;
+}
+.collection-modal-header h2 {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+.collection-modal-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+.highlight-gold {
+    color: #D97706;
+}
+.highlight-orange {
+    color: #EA580C;
+}
+
+.collection-modal-body {
+    padding: 16px 24px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* サマリー進捗バー */
+.collection-summary-box {
+    background: #FFFFFF;
+    border: 2px solid #E2E8F0;
+    border-radius: var(--radius-md);
+    padding: 16px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04);
+}
+.summary-stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 10px;
+}
+.summary-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.summary-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+.summary-num {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--text-main);
+}
+.summary-num small {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.progress-bar-container {
+    width: 100%;
+    height: 14px;
+    background: #E2E8F0;
+    border-radius: 9999px;
+    overflow: hidden;
+    position: relative;
+}
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #FFB703 0%, #FB8500 50%, #10B981 100%);
+    border-radius: 9999px;
+    transition: width 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* タブ切り替え */
+.collection-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid #E2E8F0;
+    padding-bottom: 8px;
+}
+.col-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-pill);
+    border: 1.5px solid transparent;
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.col-tab-btn:hover {
+    background: #F1F5F9;
+    color: var(--text-main);
+}
+.col-tab-btn.active {
+    background: #FFFFFF;
+    color: var(--primary-blue);
+    border-color: #BAE6FD;
+    box-shadow: 0 2px 6px rgba(2, 132, 199, 0.15);
+}
+
+/* 都道府県別進捗リスト */
+.pref-progress-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.pref-progress-item {
+    background: #F8FAFC;
+    border: 1.5px solid #E2E8F0;
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.pref-progress-item.is-completed {
+    background: #ECFDF5;
+    border-color: #6EE7B7;
+}
+.pref-item-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 700;
+}
+.pref-item-ratio {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.pref-progress-item.is-completed .pref-item-ratio {
+    color: #059669;
+    font-weight: 800;
+}
+.pref-item-bar-bg {
+    width: 100%;
+    height: 6px;
+    background: #E2E8F0;
+    border-radius: 9999px;
+    overflow: hidden;
+}
+.pref-item-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #38BDF8, #0284C7);
+    border-radius: 9999px;
+}
+.pref-progress-item.is-completed .pref-item-bar-fill {
+    background: #10B981;
+}
+
+/* バックアップ・データ移行セクション */
+.backup-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.backup-card {
+    background: #F8FAFC;
+    border: 1.5px solid #E2E8F0;
+    border-radius: var(--radius-md);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.backup-card h4 {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+.backup-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
+}
+.backup-btn-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+@media (max-width: 540px) {
+    .backup-btn-grid {
+        grid-template-columns: 1fr;
+    }
+}
+.btn-backup-action {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 800;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    background: #FFFFFF;
+    color: var(--text-main);
+    border: 1.5px solid #CBD5E1;
+    transition: var(--transition);
+    text-align: center;
+}
+.btn-backup-action:hover {
+    background: #F1F5F9;
+    border-color: var(--primary-blue);
+    transform: translateY(-2px);
+}
+.btn-copy-code {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    color: #92400E;
+    border-color: #F59E0B;
+}
+.btn-copy-code:hover {
+    background: linear-gradient(135deg, #FDE68A 0%, #FCD34D 100%);
+}
+.btn-file-input-label {
+    width: 100%;
+}
+
+.import-mode-select {
+    display: flex;
+    gap: 16px;
+    margin: 4px 0;
+}
+.import-mode-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.code-paste-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+.code-paste-box label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+.code-textarea {
+    width: 100%;
+    height: 70px;
+    padding: 8px 10px;
+    border: 1.5px solid #CBD5E1;
+    border-radius: var(--radius-sm);
+    font-family: monospace;
+    font-size: 11px;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.code-textarea:focus {
+    border-color: var(--primary-blue);
+}
+.btn-apply-import {
+    align-self: flex-start;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+    color: #FFFFFF;
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+}
+.btn-apply-import:hover {
+    background: linear-gradient(135deg, #0369A1 0%, #075985 100%);
+}
+
+.danger-card {
+    border-color: #FECDD3;
+    background: #FFF1F2;
+}
+.text-danger {
+    color: #E11D48;
+}
+.btn-danger-outline {
+    align-self: flex-start;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 800;
+    background: transparent;
+    color: #E11D48;
+    border: 1.5px solid #FDA4AF;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+}
+.btn-danger-outline:hover {
+    background: #FFE4E6;
+    border-color: #E11D48;
+}
+
+@media (max-width: 640px) {
+    .collection-modal-card {
+        max-height: 90vh;
+        max-height: 90dvh;
+    }
+    .collection-modal-header {
+        padding: 16px 16px 10px;
+    }
+    .collection-modal-body {
+        padding: 12px 16px 18px;
+    }
+    .pref-progress-list {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+

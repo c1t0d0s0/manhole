@@ -75,6 +75,9 @@
                     </div>
                 </div>
                 <div class="header-badges">
+                    <button class="stat-badge stat-badge-collection" id="btnHeaderCollection" title="コレクション達成度・機種変更データ移行">
+                        <i class="fa-solid fa-trophy"></i> <span id="headerOwnedCount">0</span>/<span id="headerTotalCount">0</span> <span class="badge-sub-pct">(<span id="headerOwnedPct">0%</span>)</span>
+                    </button>
                     <span class="stat-badge" id="cardCountBadge">
                         <i class="fa-solid fa-location-dot"></i> <span id="totalCardsCount">0</span> 枚
                     </span>
@@ -123,7 +126,19 @@
                                 <option value="">すべての弾数</option>
                             </select>
                         </div>
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-trophy select-icon"></i>
+                            <select id="ownedSelectDesktop" class="filter-select">
+                                <option value="all">所持: すべて</option>
+                                <option value="unowned">⚪️ 未所持のみ</option>
+                                <option value="owned">🌟 ゲット済みのみ</option>
+                            </select>
+                        </div>
                     </div>
+
+                    <button id="btnOwnedFilter" class="btn-pill btn-pill-owned mobile-only" title="所持状態で絞り込み (タップで切替: すべて / 未所持のみ / ゲット済みのみ)">
+                        <i class="fa-solid fa-trophy"></i> <span class="pill-label" id="ownedFilterLabel">すべて</span>
+                    </button>
 
                     <button id="btnTodayFilter" class="btn-pill btn-pill-today" title="本日配布・入手可能なカードのみ表示">
                         <i class="fa-solid fa-calendar-check"></i> <span class="pill-label">本日</span>
@@ -180,6 +195,14 @@
                         <label><i class="fa-solid fa-layer-group"></i> 弾数:</label>
                         <select id="editionSelectMobile" class="drawer-select">
                             <option value="">すべての弾数</option>
+                        </select>
+                    </div>
+                    <div class="drawer-group">
+                        <label><i class="fa-solid fa-trophy"></i> 所持状態:</label>
+                        <select id="ownedSelectMobile" class="drawer-select">
+                            <option value="all">すべてのカード</option>
+                            <option value="unowned">⚪️ 未所持のカードのみ</option>
+                            <option value="owned">🌟 ゲット済みのカードのみ</option>
                         </select>
                     </div>
                     <div class="drawer-group">
@@ -257,6 +280,26 @@
                             </div>
                         </div>
 
+                        <!-- 所持ステータス管理セクション -->
+                        <div class="card-owned-section" id="cardOwnedSection">
+                            <button type="button" id="btnToggleOwned" class="btn-pop btn-owned-toggle">
+                                <i class="fa-solid fa-circle-check" id="ownedToggleIcon"></i>
+                                <span id="ownedToggleText">持ってる！に登録</span>
+                            </button>
+                            <div class="owned-detail-box hidden" id="ownedDetailBox">
+                                <div class="owned-inputs">
+                                    <div class="owned-input-item">
+                                        <label for="ownedDateInput"><i class="fa-regular fa-calendar"></i> 入手日:</label>
+                                        <input type="date" id="ownedDateInput" class="owned-date-input">
+                                    </div>
+                                    <div class="owned-input-item">
+                                        <label for="ownedMemoInput"><i class="fa-regular fa-comment-dots"></i> メモ:</label>
+                                        <input type="text" id="ownedMemoInput" class="owned-memo-input" placeholder="旅の思い出や配布窓口の様子など（任意）">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="modal-actions">
                             <a id="btnNavGoogle" href="#" target="_blank" rel="noopener" class="btn-pop btn-nav">
                                 <i class="fa-solid fa-route"></i> Googleマップでルート案内
@@ -299,6 +342,15 @@
                             </select>
                         </div>
 
+                        <div class="select-wrapper">
+                            <i class="fa-solid fa-trophy select-icon"></i>
+                            <select id="galleryOwnedSelect" class="filter-select">
+                                <option value="all">所持: すべて</option>
+                                <option value="unowned">⚪️ 未所持のみ</option>
+                                <option value="owned">🌟 ゲット済みのみ</option>
+                            </select>
+                        </div>
+
                         <div class="gallery-search-box">
                             <i class="fa-solid fa-magnifying-glass gallery-search-icon"></i>
                             <input type="text" id="gallerySearchInput" class="gallery-search-input" placeholder="市町村名・キーワード..." autocomplete="off">
@@ -333,6 +385,113 @@
                 </button>
                 <img id="lightboxImg" src="" alt="マンホールカード拡大画像" />
                 <p class="lightbox-caption" id="lightboxCaption"></p>
+            </div>
+        </div>
+
+        <!-- コレクション達成度 & 機種変更データ移行モーダル -->
+        <div id="collectionModal" class="modal-backdrop hidden">
+            <div class="modal-card collection-modal-card">
+                <button id="btnCloseCollection" class="btn-close-modal" title="閉じる">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <div class="collection-modal-header">
+                    <h2><i class="fa-solid fa-trophy highlight-gold"></i> コレクション帳 & データ移行</h2>
+                    <p class="collection-modal-subtitle">集めたマンホールカードの記録・バックアップ・機種変更移行</p>
+                </div>
+                <div class="collection-modal-body">
+                    <!-- 達成度プログレスバー -->
+                    <div class="collection-summary-box">
+                        <div class="summary-stat-row">
+                            <div class="summary-stat">
+                                <span class="summary-label">ゲットしたカード</span>
+                                <span class="summary-num"><span id="colModalOwnedCount">0</span> <small>/ <span id="colModalTotalCount">0</span> 枚</small></span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="summary-label">コンプリート率</span>
+                                <span class="summary-num highlight-orange"><span id="colModalPct">0.0</span>%</span>
+                            </div>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" id="colProgressBar" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- タブ切り替え: 都道府県別進捗 / データ移行・バックアップ -->
+                    <div class="collection-tabs">
+                        <button class="col-tab-btn active" id="tabBtnStats" data-tab="tabStats">
+                            <i class="fa-solid fa-chart-pie"></i> 都道府県別の達成度
+                        </button>
+                        <button class="col-tab-btn" id="tabBtnBackup" data-tab="tabBackup">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> 機種変更・バックアップ
+                        </button>
+                    </div>
+
+                    <!-- タブ1: 都道府県別の達成度 -->
+                    <div class="tab-content" id="tabStats">
+                        <div class="pref-progress-list" id="prefProgressList"></div>
+                    </div>
+
+                    <!-- タブ2: 機種変更・バックアップ -->
+                    <div class="tab-content hidden" id="tabBackup">
+                        <div class="backup-section">
+                            <!-- エクスポートエリア -->
+                            <div class="backup-card">
+                                <h4><i class="fa-solid fa-download text-orange"></i> 1. データをバックアップ（エクスポート）</h4>
+                                <p class="backup-desc">所持しているカード・入手日・メモのデータを保存します。機種変更前の端末で行ってください。</p>
+                                <div class="backup-btn-grid">
+                                    <button id="btnExportJson" class="btn-pop btn-backup-action">
+                                        <i class="fa-solid fa-file-arrow-down"></i> バックアップファイルを保存 (.json)
+                                    </button>
+                                    <button id="btnCopyBackupCode" class="btn-pop btn-backup-action btn-copy-code">
+                                        <i class="fa-solid fa-copy"></i> バックアップコードをコピー (スマホ推奨)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- インポートエリア -->
+                            <div class="backup-card">
+                                <h4><i class="fa-solid fa-upload text-blue"></i> 2. データを復元（インポート）</h4>
+                                <p class="backup-desc">保存したファイルまたはコピーしたコードからデータを復元します。新しい端末・ブラウザで行ってください。</p>
+                                
+                                <div class="import-mode-select">
+                                    <label class="import-mode-label">
+                                        <input type="radio" name="importMode" value="merge" checked>
+                                        <span>既存データに合算（おすすめ）</span>
+                                    </label>
+                                    <label class="import-mode-label">
+                                        <input type="radio" name="importMode" value="overwrite">
+                                        <span>バックアップで上書き</span>
+                                    </label>
+                                </div>
+
+                                <div class="backup-btn-grid">
+                                    <label class="btn-pop btn-backup-action btn-file-input-label">
+                                        <i class="fa-solid fa-folder-open"></i> ファイルを選択して復元
+                                        <input type="file" id="importFileInput" accept=".json" class="hidden">
+                                    </label>
+                                </div>
+
+                                <!-- テキストコード貼り付け復元 -->
+                                <div class="code-paste-box">
+                                    <label for="importCodeTextarea"><i class="fa-solid fa-paste"></i> またはバックアップコードを貼り付け:</label>
+                                    <textarea id="importCodeTextarea" class="code-textarea" placeholder="コピーしたコードをここに貼り付けてください..."></textarea>
+                                    <button id="btnApplyImportCode" class="btn-pop btn-apply-import">
+                                        <i class="fa-solid fa-circle-check"></i> コードから復元する
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 全リセット (危険ゾーン) -->
+                            <div class="backup-card danger-card">
+                                <h4><i class="fa-solid fa-triangle-exclamation text-danger"></i> データの初期化</h4>
+                                <p class="backup-desc">登録した所持カード情報をすべて消去します。（復元できなくなります）</p>
+                                <button id="btnResetOwnedData" class="btn-danger-outline">
+                                    <i class="fa-solid fa-trash-can"></i> 所持データをすべてリセット
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

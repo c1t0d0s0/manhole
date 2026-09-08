@@ -25,6 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let activeCard = null;
     let todayOnlyFilter = false;
     let includeDiscontinued = false;
+    let currentOwnedFilter = "all"; // "all" | "unowned" | "owned"
     let currentSortMode = "pref"; // "pref" (北海道〜沖縄) | "nearest" (近い順)
     let userLocation = null; // { lat: number, lng: number }
     let openedFromGallery = false;
@@ -36,14 +37,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnClearSearch = document.getElementById("btnClearSearch");
     const searchSuggestions = document.getElementById("searchSuggestions");
 
+    // Header Collection Badge
+    const btnHeaderCollection = document.getElementById("btnHeaderCollection");
+    const headerOwnedCount = document.getElementById("headerOwnedCount");
+    const headerTotalCount = document.getElementById("headerTotalCount");
+    const headerOwnedPct = document.getElementById("headerOwnedPct");
+
     // Select Dropdowns (Desktop & Mobile)
     const prefSelectDesktop = document.getElementById("prefSelectDesktop");
     const prefSelectMobile = document.getElementById("prefSelectMobile");
     const editionSelectDesktop = document.getElementById("editionSelectDesktop");
     const editionSelectMobile = document.getElementById("editionSelectMobile");
+    const ownedSelectDesktop = document.getElementById("ownedSelectDesktop");
+    const ownedSelectMobile = document.getElementById("ownedSelectMobile");
     const sortSelectMobile = document.getElementById("sortSelectMobile");
 
     // Buttons & Toggles
+    const btnOwnedFilter = document.getElementById("btnOwnedFilter");
+    const ownedFilterLabel = document.getElementById("ownedFilterLabel");
     const btnTodayFilter = document.getElementById("btnTodayFilter");
     const todayCheckMobile = document.getElementById("todayCheckMobile");
     const btnDiscontinuedFilter = document.getElementById("btnDiscontinuedFilter");
@@ -79,6 +90,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const stockContainer = document.getElementById("stockContainer");
     const btnNavGoogle = document.getElementById("btnNavGoogle");
 
+    // Card Owned Management in Modal
+    const btnToggleOwned = document.getElementById("btnToggleOwned");
+    const ownedToggleIcon = document.getElementById("ownedToggleIcon");
+    const ownedToggleText = document.getElementById("ownedToggleText");
+    const ownedDetailBox = document.getElementById("ownedDetailBox");
+    const ownedDateInput = document.getElementById("ownedDateInput");
+    const ownedMemoInput = document.getElementById("ownedMemoInput");
+
     // Lightbox elements
     const imageLightbox = document.getElementById("imageLightbox");
     const btnCloseLightbox = document.getElementById("btnCloseLightbox");
@@ -92,13 +111,242 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnCloseGallery = document.getElementById("btnCloseGallery");
     const galleryPrefSelect = document.getElementById("galleryPrefSelect");
     const galleryEditionSelect = document.getElementById("galleryEditionSelect");
+    const galleryOwnedSelect = document.getElementById("galleryOwnedSelect");
     const gallerySortSelect = document.getElementById("gallerySortSelect");
     const gallerySearchInput = document.getElementById("gallerySearchInput");
     const galleryGrid = document.getElementById("galleryGrid");
     const galleryEmpty = document.getElementById("galleryEmpty");
     const galleryCountBadge = document.getElementById("galleryCountBadge");
 
+    // Collection & Migration Modal Elements
+    const collectionModal = document.getElementById("collectionModal");
+    const btnCloseCollection = document.getElementById("btnCloseCollection");
+    const colModalOwnedCount = document.getElementById("colModalOwnedCount");
+    const colModalTotalCount = document.getElementById("colModalTotalCount");
+    const colModalPct = document.getElementById("colModalPct");
+    const colProgressBar = document.getElementById("colProgressBar");
+    const tabBtnStats = document.getElementById("tabBtnStats");
+    const tabBtnBackup = document.getElementById("tabBtnBackup");
+    const tabStats = document.getElementById("tabStats");
+    const tabBackup = document.getElementById("tabBackup");
+    const prefProgressList = document.getElementById("prefProgressList");
+    const btnExportJson = document.getElementById("btnExportJson");
+    const btnCopyBackupCode = document.getElementById("btnCopyBackupCode");
+    const importFileInput = document.getElementById("importFileInput");
+    const importCodeTextarea = document.getElementById("importCodeTextarea");
+    const btnApplyImportCode = document.getElementById("btnApplyImportCode");
+    const btnResetOwnedData = document.getElementById("btnResetOwnedData");
+
+    // ----------------------------------------------------------------------
+    // 0. Card ID Helper & Owned Cards Storage Manager
+    // ----------------------------------------------------------------------
+    function getCardId(card) {
+        if (!card) return "";
+        if (card._id) return card._id;
+        if (card.img_url) {
+            const parts = card.img_url.split('/');
+            const filename = parts[parts.length - 1].replace(/\.[^/.]+$/, '');
+            if (filename) {
+                card._id = filename;
+                return filename;
+            }
+        }
+        const fallback = `${card.pref || ""}_${card.city || ""}_${card.edition || ""}_${card.loc_name || ""}`;
+        card._id = fallback;
+        return fallback;
+    }
+
+    const OwnedCardsManager = {
+        STORAGE_KEY: "manhole_owned_cards_v1",
+        data: {
+            version: 1,
+            updatedAt: null,
+            cards: {}
+        },
+
+        init() {
+            this.load();
+        },
+
+        load() {
+            try {
+                const stored = localStorage.getItem(this.STORAGE_KEY);
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (parsed && typeof parsed === "object") {
+                        if (parsed.cards && typeof parsed.cards === "object") {
+                            this.data = parsed;
+                        } else if (Array.isArray(parsed)) {
+                            this.data = {
+                                version: 1,
+                                updatedAt: new Date().toISOString(),
+                                cards: {}
+                            };
+                            parsed.forEach(id => {
+                                this.data.cards[id] = { owned: true };
+                            });
+                        } else {
+                            this.data = { version: 1, updatedAt: new Date().toISOString(), cards: parsed };
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to load owned cards from localStorage:", e);
+                this.data = { version: 1, updatedAt: null, cards: {} };
+            }
+        },
+
+        save() {
+            try {
+                this.data.updatedAt = new Date().toISOString();
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.data));
+            } catch (e) {
+                console.error("Failed to save owned cards to localStorage:", e);
+            }
+        },
+
+        isOwned(cardId) {
+            if (!cardId || !this.data.cards) return false;
+            const item = this.data.cards[cardId];
+            return !!(item && item.owned);
+        },
+
+        getCardData(cardId) {
+            if (!cardId || !this.data.cards) return null;
+            return this.data.cards[cardId] || null;
+        },
+
+        setOwned(cardId, isOwned, details = {}) {
+            if (!cardId) return;
+            if (!this.data.cards) this.data.cards = {};
+
+            if (isOwned) {
+                const existing = this.data.cards[cardId] || {};
+                const todayStr = new Date().toISOString().split('T')[0];
+                this.data.cards[cardId] = {
+                    owned: true,
+                    obtainedDate: details.obtainedDate !== undefined ? details.obtainedDate : (existing.obtainedDate || todayStr),
+                    memo: details.memo !== undefined ? details.memo : (existing.memo || "")
+                };
+            } else {
+                delete this.data.cards[cardId];
+            }
+            this.save();
+        },
+
+        getOwnedCount() {
+            if (!this.data.cards) return 0;
+            return Object.values(this.data.cards).filter(c => c && c.owned).length;
+        },
+
+        exportJSON() {
+            const exportData = {
+                app: "manhole-card-map",
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                totalOwned: this.getOwnedCount(),
+                cards: this.data.cards
+            };
+            const jsonStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([jsonStr], { type: "application/json" });
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+            const fileName = `manhole_cards_backup_${dateStr}.json`;
+
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+        },
+
+        getBackupCode() {
+            const exportData = {
+                app: "manhole-card-map",
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                cards: this.data.cards
+            };
+            return JSON.stringify(exportData);
+        },
+
+        async copyBackupCode() {
+            const code = this.getBackupCode();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                try {
+                    await navigator.clipboard.writeText(code);
+                    return true;
+                } catch (e) {
+                    console.warn("Clipboard API write failed, using fallback:", e);
+                }
+            }
+            // Fallback
+            const ta = document.createElement("textarea");
+            ta.value = code;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            const success = document.execCommand("copy");
+            document.body.removeChild(ta);
+            return success;
+        },
+
+        importData(parsedObj, mode = "merge") {
+            if (!parsedObj || typeof parsedObj !== "object") {
+                throw new Error("無効なデータ形式です。JSONオブジェクトを指定してください。");
+            }
+
+            let incomingCards = {};
+            if (parsedObj.cards && typeof parsedObj.cards === "object") {
+                incomingCards = parsedObj.cards;
+            } else if (parsedObj.app === "manhole-card-map" && parsedObj.cards) {
+                incomingCards = parsedObj.cards;
+            } else {
+                incomingCards = parsedObj;
+            }
+
+            const validEntries = {};
+            let count = 0;
+            for (const [id, item] of Object.entries(incomingCards)) {
+                if (!id || typeof id !== "string") continue;
+                if (typeof item === "boolean") {
+                    if (item) {
+                        validEntries[id] = { owned: true, obtainedDate: "", memo: "" };
+                        count++;
+                    }
+                } else if (item && typeof item === "object") {
+                    if (item.owned !== false) {
+                        validEntries[id] = {
+                            owned: true,
+                            obtainedDate: item.obtainedDate || "",
+                            memo: item.memo || ""
+                        };
+                        count++;
+                    }
+                }
+            }
+
+            if (mode === "overwrite") {
+                this.data.cards = validEntries;
+            } else {
+                this.data.cards = { ...this.data.cards, ...validEntries };
+            }
+
+            this.save();
+            return count;
+        },
+
+        resetAll() {
+            this.data = { version: 1, updatedAt: new Date().toISOString(), cards: {} };
+            this.save();
+        }
+    };
+
     // --- Initialize Application ---
+    OwnedCardsManager.init();
     initMap();
     loadCSVData();
 
@@ -203,6 +451,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 console.log(`Loaded ${cardsData.length} cards with valid coordinates.`);
 
                 populateFilterDropdowns();
+                updateCollectionStatsUI();
                 applyFilters();
 
                 // ローディング解除
@@ -247,21 +496,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ----------------------------------------------------------------------
-    // 3. Authentic Pop Manhole Pin Marker Rendering
+    // 3. Authentic Pop Manhole Pin Marker Rendering (所持状態対応)
     // ----------------------------------------------------------------------
-    function createCustomIcon() {
+    function createManholeIcon(isOwned) {
+        const pinFill = isOwned ? "#10B981" : "#FB8500";
+        const coverFill = isOwned ? "#047857" : "#334155";
+        const strokeColor = isOwned ? "#FFD166" : "#FFFFFF";
+        const gridStroke = isOwned ? "#A7F3D0" : "#94A3B8";
+        const badgeCheck = isOwned ? `
+            <!-- Checkmark Badge -->
+            <circle cx="31" cy="9" r="7.5" fill="#FFB703" stroke="#FFFFFF" stroke-width="1.5"/>
+            <path d="M28 9.5 L30 11.5 L34 7.5" fill="none" stroke="#78350F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        ` : '';
+
         const svgManholePin = `
-            <div class="pop-manhole-marker" title="マンホールカード">
+            <div class="pop-manhole-marker ${isOwned ? 'marker-owned' : ''}" title="マンホールカード">
                 <svg viewBox="0 0 40 50" width="40" height="50" xmlns="http://www.w3.org/2000/svg">
                     <!-- Drop Pin Frame -->
-                    <path d="M20 50 C20 50 38 30 38 19 C38 8.5 30 0 20 0 C10 0 2 8.5 2 19 C2 30 20 50 20 50 Z" fill="#FB8500" stroke="#FFFFFF" stroke-width="2.5"/>
+                    <path d="M20 50 C20 50 38 30 38 19 C38 8.5 30 0 20 0 C10 0 2 8.5 2 19 C2 30 20 50 20 50 Z" fill="${pinFill}" stroke="#FFFFFF" stroke-width="2.5"/>
                     <!-- Metallic Manhole Cover Plate -->
-                    <circle cx="20" cy="19" r="14" fill="#334155" stroke="#FFFFFF" stroke-width="1.5"/>
+                    <circle cx="20" cy="19" r="14" fill="${coverFill}" stroke="${strokeColor}" stroke-width="1.5"/>
                     <!-- Concentric Waffle Grid Pattern -->
-                    <circle cx="20" cy="19" r="10.5" fill="none" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4 2"/>
-                    <circle cx="20" cy="19" r="6" fill="none" stroke="#94A3B8" stroke-width="1.2"/>
+                    <circle cx="20" cy="19" r="10.5" fill="none" stroke="${gridStroke}" stroke-width="1.5" stroke-dasharray="4 2"/>
+                    <circle cx="20" cy="19" r="6" fill="none" stroke="${gridStroke}" stroke-width="1.2"/>
                     <!-- Center Gold Hub -->
                     <circle cx="20" cy="19" r="3.5" fill="#FFB703"/>
+                    ${badgeCheck}
                 </svg>
             </div>
         `;
@@ -279,7 +539,8 @@ document.addEventListener("DOMContentLoaded", () => {
         markerClusterGroup.clearLayers();
         markersMap.clear();
 
-        const customIcon = createCustomIcon();
+        const unownedIcon = createManholeIcon(false);
+        const ownedIcon = createManholeIcon(true);
 
         dataList.forEach((card, index) => {
             const lat = parseFloat(card.lat);
@@ -287,7 +548,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (isNaN(lat) || isNaN(lng)) return;
 
-            const marker = L.marker([lat, lng], { icon: customIcon });
+            const isOwned = OwnedCardsManager.isOwned(getCardId(card));
+            const marker = L.marker([lat, lng], { icon: isOwned ? ownedIcon : unownedIcon });
 
             // クリックで詳細モーダル表示
             marker.on("click", () => {
@@ -578,6 +840,25 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    function syncOwnedFilter(mode) {
+        currentOwnedFilter = mode; // "all" | "unowned" | "owned"
+        if (btnOwnedFilter) {
+            btnOwnedFilter.classList.remove("mode-unowned", "mode-owned");
+            if (mode === "unowned") {
+                btnOwnedFilter.classList.add("mode-unowned");
+                if (ownedFilterLabel) ownedFilterLabel.textContent = "未所持のみ";
+            } else if (mode === "owned") {
+                btnOwnedFilter.classList.add("mode-owned");
+                if (ownedFilterLabel) ownedFilterLabel.textContent = "ゲット済のみ";
+            } else {
+                if (ownedFilterLabel) ownedFilterLabel.textContent = "すべて";
+            }
+        }
+        if (ownedSelectDesktop) ownedSelectDesktop.value = mode;
+        if (ownedSelectMobile) ownedSelectMobile.value = mode;
+        if (galleryOwnedSelect) galleryOwnedSelect.value = mode;
+    }
+
     function getFilteredData() {
         const query = searchInput.value.trim().toLowerCase();
         const selectedPref = getSelectedPref();
@@ -593,6 +874,14 @@ document.addEventListener("DOMContentLoaded", () => {
             if (todayOnlyFilter) {
                 const avail = evaluateCardAvailability(card.hours);
                 if (!avail.isAvailable) return false;
+            }
+
+            // 0.5. Owned Status Filter
+            if (currentOwnedFilter === "unowned" && OwnedCardsManager.isOwned(getCardId(card))) {
+                return false;
+            }
+            if (currentOwnedFilter === "owned" && !OwnedCardsManager.isOwned(getCardId(card))) {
+                return false;
             }
 
             // 1. Search Query Match
@@ -763,7 +1052,32 @@ document.addEventListener("DOMContentLoaded", () => {
         const lng = card.lng;
         btnNavGoogle.href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
+        updateCardModalOwnedUI(card);
+
         cardModal.classList.remove("hidden");
+    }
+
+    function updateCardModalOwnedUI(card) {
+        if (!card) return;
+        const cardId = getCardId(card);
+        const isOwned = OwnedCardsManager.isOwned(cardId);
+        const cardData = OwnedCardsManager.getCardData(cardId);
+
+        if (btnToggleOwned) {
+            if (isOwned) {
+                btnToggleOwned.classList.add("is-owned");
+                if (ownedToggleIcon) ownedToggleIcon.className = "fa-solid fa-circle-check";
+                if (ownedToggleText) ownedToggleText.textContent = "🎉 ゲット済み！ (タップで解除)";
+                if (ownedDetailBox) ownedDetailBox.classList.remove("hidden");
+                if (ownedDateInput) ownedDateInput.value = cardData && cardData.obtainedDate ? cardData.obtainedDate : new Date().toISOString().split('T')[0];
+                if (ownedMemoInput) ownedMemoInput.value = cardData && cardData.memo ? cardData.memo : "";
+            } else {
+                btnToggleOwned.classList.remove("is-owned");
+                if (ownedToggleIcon) ownedToggleIcon.className = "fa-regular fa-circle-check";
+                if (ownedToggleText) ownedToggleText.textContent = "⚪️ 持ってる！に登録";
+                if (ownedDetailBox) ownedDetailBox.classList.add("hidden");
+            }
+        }
     }
 
     function closeModal() {
@@ -793,7 +1107,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderGallery() {
         if (!galleryGrid) return;
 
-        // getFilteredData() はすでにキーワード・都道府県・弾数・ソート順（北海道→沖縄 or 近い順）が適用されたデータを返す
+        // getFilteredData() はすでにキーワード・都道府県・弾数・所持状態・ソート順が適用されたデータを返す
         const filtered = getFilteredData();
 
         if (galleryCountBadge) {
@@ -810,7 +1124,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         galleryGrid.innerHTML = filtered.map((card, idx) => {
             const isDisc = isDiscontinuedCard(card);
+            const isOwned = OwnedCardsManager.isOwned(getCardId(card));
             const discBadgeHtml = isDisc ? '<span class="badge badge-discontinued">配布終了・休止</span>' : '';
+            const ownedBadgeHtml = isOwned ? '<span class="badge badge-owned"><i class="fa-solid fa-circle-check"></i> ゲット済</span>' : '';
             
             let distBadgeHtml = '';
             if (userLocation && typeof card._distance === 'number' && isFinite(card._distance)) {
@@ -818,13 +1134,14 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             return `
-                <div class="gallery-card-item" data-idx="${idx}">
+                <div class="gallery-card-item ${isOwned ? 'is-owned-card' : ''}" data-idx="${idx}">
                     <div class="gallery-img-wrapper">
                         <img src="${escapeHTML(card.img_url) || 'https://via.placeholder.com/300x420?text=No+Image'}" alt="${escapeHTML(card.city)}" class="gallery-card-img" loading="lazy" />
                     </div>
                     <div class="gallery-card-badges">
                         <span class="badge badge-pref">${escapeHTML(card.pref)}</span>
                         <span class="badge badge-edition">${escapeHTML(card.edition)}</span>
+                        ${ownedBadgeHtml}
                         ${distBadgeHtml}
                         ${discBadgeHtml}
                     </div>
@@ -1176,6 +1493,302 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // ----------------------------------------------------------------------
+    // 7. Collection Modal & Data Migration Logic
+    // ----------------------------------------------------------------------
+    function openCollectionModal() {
+        if (!collectionModal) return;
+        updateCollectionStatsUI();
+        collectionModal.classList.remove("hidden");
+    }
+
+    function closeCollectionModal() {
+        if (collectionModal) collectionModal.classList.add("hidden");
+    }
+
+    function updateCollectionStatsUI() {
+        const total = cardsData.length;
+        const owned = OwnedCardsManager.getOwnedCount();
+        const pct = total > 0 ? ((owned / total) * 100).toFixed(1) : "0.0";
+
+        if (headerOwnedCount) headerOwnedCount.textContent = owned.toLocaleString();
+        if (headerTotalCount) headerTotalCount.textContent = total.toLocaleString();
+        if (headerOwnedPct) headerOwnedPct.textContent = `${pct}%`;
+
+        if (colModalOwnedCount) colModalOwnedCount.textContent = owned.toLocaleString();
+        if (colModalTotalCount) colModalTotalCount.textContent = total.toLocaleString();
+        if (colModalPct) colModalPct.textContent = pct;
+        if (colProgressBar) colProgressBar.style.width = `${pct}%`;
+
+        renderPrefProgressList();
+    }
+
+    function renderPrefProgressList() {
+        if (!prefProgressList) return;
+
+        const prefStats = new Map();
+        JAPAN_PREFECTURES.forEach(pref => {
+            prefStats.set(pref, { total: 0, owned: 0 });
+        });
+
+        cardsData.forEach(card => {
+            if (card.pref && prefStats.has(card.pref)) {
+                const s = prefStats.get(card.pref);
+                s.total++;
+                if (OwnedCardsManager.isOwned(getCardId(card))) {
+                    s.owned++;
+                }
+            }
+        });
+
+        prefProgressList.innerHTML = JAPAN_PREFECTURES.map(pref => {
+            const s = prefStats.get(pref);
+            const ratioPct = s.total > 0 ? ((s.owned / s.total) * 100).toFixed(0) : 0;
+            const isComp = s.total > 0 && s.owned === s.total;
+
+            return `
+                <div class="pref-progress-item ${isComp ? 'is-completed' : ''}">
+                    <div class="pref-item-head">
+                        <span class="pref-item-name">${escapeHTML(pref)}</span>
+                        <span class="pref-item-ratio">${s.owned} / ${s.total} <small>(${ratioPct}%)</small></span>
+                    </div>
+                    <div class="pref-item-bar-bg">
+                        <div class="pref-item-bar-fill" style="width: ${ratioPct}%;"></div>
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    // 所有トグルボタン
+    if (btnToggleOwned) {
+        btnToggleOwned.addEventListener("click", () => {
+            if (!activeCard) return;
+            const cardId = getCardId(activeCard);
+            const isCurrentlyOwned = OwnedCardsManager.isOwned(cardId);
+
+            if (isCurrentlyOwned) {
+                OwnedCardsManager.setOwned(cardId, false);
+            } else {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const memoVal = ownedMemoInput ? ownedMemoInput.value.trim() : "";
+                OwnedCardsManager.setOwned(cardId, true, { obtainedDate: todayStr, memo: memoVal });
+            }
+
+            updateCardModalOwnedUI(activeCard);
+            updateCollectionStatsUI();
+            applyFilters();
+            if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                renderGallery();
+            }
+        });
+    }
+
+    if (ownedDateInput) {
+        ownedDateInput.addEventListener("change", () => {
+            if (!activeCard || !OwnedCardsManager.isOwned(getCardId(activeCard))) return;
+            const cardId = getCardId(activeCard);
+            const existing = OwnedCardsManager.getCardData(cardId) || {};
+            OwnedCardsManager.setOwned(cardId, true, {
+                obtainedDate: ownedDateInput.value,
+                memo: existing.memo
+            });
+        });
+    }
+
+    if (ownedMemoInput) {
+        ownedMemoInput.addEventListener("input", () => {
+            if (!activeCard || !OwnedCardsManager.isOwned(getCardId(activeCard))) return;
+            const cardId = getCardId(activeCard);
+            const existing = OwnedCardsManager.getCardData(cardId) || {};
+            OwnedCardsManager.setOwned(cardId, true, {
+                obtainedDate: existing.obtainedDate,
+                memo: ownedMemoInput.value.trim()
+            });
+        });
+    }
+
+    // 所有フィルター切り替えイベント
+    if (btnOwnedFilter) {
+        btnOwnedFilter.addEventListener("click", () => {
+            let nextMode = "all";
+            if (currentOwnedFilter === "all") nextMode = "unowned";
+            else if (currentOwnedFilter === "unowned") nextMode = "owned";
+            else nextMode = "all";
+            syncOwnedFilter(nextMode);
+            applyFilters();
+            if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                renderGallery();
+            }
+        });
+    }
+
+    if (ownedSelectDesktop) {
+        ownedSelectDesktop.addEventListener("change", (e) => {
+            syncOwnedFilter(e.target.value);
+            applyFilters();
+        });
+    }
+
+    if (ownedSelectMobile) {
+        ownedSelectMobile.addEventListener("change", (e) => {
+            syncOwnedFilter(e.target.value);
+        });
+    }
+
+    if (galleryOwnedSelect) {
+        galleryOwnedSelect.addEventListener("change", (e) => {
+            syncOwnedFilter(e.target.value);
+            renderGallery();
+            applyFilters();
+        });
+    }
+
+    // コレクション達成度モーダル開閉
+    if (btnHeaderCollection) {
+        btnHeaderCollection.addEventListener("click", openCollectionModal);
+    }
+    if (btnCloseCollection) {
+        btnCloseCollection.addEventListener("click", closeCollectionModal);
+    }
+    if (collectionModal) {
+        collectionModal.addEventListener("click", (e) => {
+            if (e.target === collectionModal) closeCollectionModal();
+        });
+    }
+
+    // コレクションモーダル タブ切り替え
+    if (tabBtnStats && tabBtnBackup) {
+        tabBtnStats.addEventListener("click", () => {
+            tabBtnStats.classList.add("active");
+            tabBtnBackup.classList.remove("active");
+            tabStats.classList.remove("hidden");
+            tabBackup.classList.add("hidden");
+        });
+
+        tabBtnBackup.addEventListener("click", () => {
+            tabBtnBackup.classList.add("active");
+            tabBtnStats.classList.remove("active");
+            tabBackup.classList.remove("hidden");
+            tabStats.classList.add("hidden");
+        });
+    }
+
+    // バックアップ (JSONファイル保存)
+    if (btnExportJson) {
+        btnExportJson.addEventListener("click", () => {
+            try {
+                OwnedCardsManager.exportJSON();
+            } catch (err) {
+                alert("バックアップファイルの保存に失敗しました: " + err.message);
+            }
+        });
+    }
+
+    // バックアップコードのコピー
+    if (btnCopyBackupCode) {
+        btnCopyBackupCode.addEventListener("click", async () => {
+            try {
+                const success = await OwnedCardsManager.copyBackupCode();
+                if (success) {
+                    const originalText = btnCopyBackupCode.innerHTML;
+                    btnCopyBackupCode.innerHTML = '<i class="fa-solid fa-check"></i> コピーしました！';
+                    btnCopyBackupCode.style.background = '#10B981';
+                    btnCopyBackupCode.style.color = '#FFFFFF';
+                    setTimeout(() => {
+                        btnCopyBackupCode.innerHTML = originalText;
+                        btnCopyBackupCode.style.background = '';
+                        btnCopyBackupCode.style.color = '';
+                    }, 2500);
+                } else {
+                    alert("コードのコピーに失敗しました。手動でコードをエクスポートしてください。");
+                }
+            } catch (err) {
+                alert("コピー時にエラーが発生しました: " + err.message);
+            }
+        });
+    }
+
+    // バックアップ復元 (ファイル選択)
+    if (importFileInput) {
+        importFileInput.addEventListener("change", (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+
+            const mode = document.querySelector('input[name="importMode"]:checked')?.value || "merge";
+            const reader = new FileReader();
+
+            reader.onload = (event) => {
+                try {
+                    const parsed = JSON.parse(event.target.result);
+                    const count = OwnedCardsManager.importData(parsed, mode);
+                    updateCollectionStatsUI();
+                    applyFilters();
+                    if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                        renderGallery();
+                    }
+                    alert(`✅ ${count} 枚の所持カードデータを正常に復元しました！`);
+                } catch (err) {
+                    alert("⚠️ データの復元に失敗しました。ファイルが破損しているか、無効な形式です: " + err.message);
+                } finally {
+                    importFileInput.value = "";
+                }
+            };
+
+            reader.onerror = () => {
+                alert("ファイルの読み込み中にエラーが発生しました。");
+                importFileInput.value = "";
+            };
+
+            reader.readAsText(file);
+        });
+    }
+
+    // バックアップ復元 (コード貼り付け)
+    if (btnApplyImportCode) {
+        btnApplyImportCode.addEventListener("click", () => {
+            const rawCode = importCodeTextarea ? importCodeTextarea.value.trim() : "";
+            if (!rawCode) {
+                alert("バックアップコードを貼り付けてからボタンを押してください。");
+                return;
+            }
+
+            const mode = document.querySelector('input[name="importMode"]:checked')?.value || "merge";
+            try {
+                const parsed = JSON.parse(rawCode);
+                const count = OwnedCardsManager.importData(parsed, mode);
+                updateCollectionStatsUI();
+                applyFilters();
+                if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                    renderGallery();
+                }
+                if (importCodeTextarea) importCodeTextarea.value = "";
+                alert(`✅ ${count} 枚の所持カードデータを正常に復元しました！`);
+            } catch (err) {
+                alert("⚠️ 有効なバックアップコードではありません。正しくコピーされているかご確認ください。\nエラー: " + err.message);
+            }
+        });
+    }
+
+    // 全リセット
+    if (btnResetOwnedData) {
+        btnResetOwnedData.addEventListener("click", () => {
+            const confirmed = confirm("【注意】登録した所持カードデータをすべて消去します。\nこの操作は元に戻せません。本当によろしいですか？");
+            if (confirmed) {
+                OwnedCardsManager.resetAll();
+                updateCollectionStatsUI();
+                applyFilters();
+                if (galleryModal && !galleryModal.classList.contains("hidden")) {
+                    renderGallery();
+                }
+                if (activeCard) {
+                    updateCardModalOwnedUI(activeCard);
+                }
+                alert("所持データをすべて初期化しました。");
+            }
+        });
+    }
+
     // キーボードショートカット
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
@@ -1187,6 +1800,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 closeDrawer();
             } else if (galleryModal && !galleryModal.classList.contains("hidden")) {
                 closeGalleryModal();
+            } else if (collectionModal && !collectionModal.classList.contains("hidden")) {
+                closeCollectionModal();
             }
             if (searchSuggestions) searchSuggestions.classList.add("hidden");
         }
