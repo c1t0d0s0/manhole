@@ -1241,9 +1241,13 @@ body, html {
         padding: 6px 8px;
     }
 
+    .header-inner {
+        gap: 8px;
+    }
+
     .logo-area {
         gap: 6px;
-        flex-shrink: 1;
+        flex-shrink: 0;
         min-width: 0;
     }
 
@@ -1258,8 +1262,10 @@ body, html {
     }
 
     .app-title {
-        font-size: 13px;
+        font-size: 14px;
+        font-weight: 900;
         letter-spacing: -0.2px;
+        white-space: nowrap;
     }
 
     .app-subtitle {
@@ -1271,15 +1277,29 @@ body, html {
         flex-shrink: 0;
     }
 
+    .header-col-detail {
+        display: none !important;
+    }
+
     .stat-badge {
-        font-size: 10px;
-        padding: 3px 6px;
+        font-size: 11px;
+        padding: 3px 8px;
+        white-space: nowrap;
+    }
+
+    .stat-badge-collection {
+        font-size: 11px;
+        padding: 3px 8px;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .btn-gallery {
         font-size: 11px;
         padding: 4px 8px;
         gap: 4px;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .floating-controls {
