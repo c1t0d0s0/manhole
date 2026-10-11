@@ -39,6 +39,16 @@ PREF_CODE_MAP = {
     '46':'鹿児島県','47':'沖縄県'
 }
 
+# Manual overrides for cards where GSI address geocoding falls back to a broad land parcel / railway yard
+# rather than the actual facility building.
+MANUAL_OVERRIDES = {
+    # 13-201-A-01: 八王子市 (A001) 八王子インフォメーションセンター (JR八王子駅北口駅前広場 タクシー乗り場西側)
+    '13-201-A-01': {
+        'lat': '35.656352',
+        'lng': '139.339163'
+    }
+}
+
 def normalize_pref(img_url, raw_pref, address, city):
     m = re.search(r'/mhc/(\d{2})[-_]', img_url)
     if m and m.group(1) in PREF_CODE_MAP:
@@ -438,6 +448,20 @@ def geocode_record_fallback(record):
 
 def process_record(args):
     record, kml_items = args
+
+    # Check manual overrides first
+    img_url = record.get('img_url', '')
+    m_img = re.search(r'/mhc/([^\s/]+?)\.(?:jpg|png)', img_url)
+    img_key = m_img.group(1) if m_img else ''
+    if img_key in MANUAL_OVERRIDES:
+        record['lat'] = MANUAL_OVERRIDES[img_key]['lat']
+        record['lng'] = MANUAL_OVERRIDES[img_key]['lng']
+        return record, True
+    if '八王子インフォメーションセンター' in record.get('loc_name', ''):
+        record['lat'] = '35.656352'
+        record['lng'] = '139.339163'
+        return record, True
+
     match = find_kml_match(record, kml_items)
     if match:
         record['lat'], record['lng'] = match['lat'], match['lng']
