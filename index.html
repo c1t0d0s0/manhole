@@ -17,18 +17,30 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="マンホールMAP">
     
-    <!-- Google Analytics (config.jsが存在しGTM_IDが定義されている場合に初期化) -->
+    <!-- Google Analytics / Google Tag Manager (config.jsが存在しGTM_IDが定義されている場合に初期化) -->
+    <!-- GTM_IDが "GTM-" で始まる場合は Google Tag Manager、それ以外は Google Analytics (gtag.js) を読み込む -->
     <script src="config.js"></script>
     <script>
         (function() {
             var gtmId = (typeof GTM_ID !== 'undefined' && GTM_ID) ? GTM_ID : (typeof window !== 'undefined' && window.GTM_ID ? window.GTM_ID : null);
-            if (gtmId) {
+            if (!gtmId) return;
+            gtmId = String(gtmId).trim();
+            window.dataLayer = window.dataLayer || [];
+
+            if (/^GTM-/i.test(gtmId)) {
+                // Google Tag Manager
+                window.dataLayer.push({'gtm.start': new Date().getTime(), event: 'gtm.js'});
+                var gtmScript = document.createElement('script');
+                gtmScript.async = true;
+                gtmScript.src = 'https://www.googletagmanager.com/gtm.js?id=' + encodeURIComponent(gtmId);
+                document.head.appendChild(gtmScript);
+            } else {
+                // Google Analytics (gtag.js)
                 var script = document.createElement('script');
                 script.async = true;
                 script.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(gtmId);
                 document.head.appendChild(script);
 
-                window.dataLayer = window.dataLayer || [];
                 function gtag(){dataLayer.push(arguments);}
                 window.gtag = gtag;
                 gtag('js', new Date());

@@ -25,13 +25,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Google Analytics config
+      - name: Set up Google Analytics / Google Tag Manager config
         env:
           GTM_ID: ${{ vars.GTM_ID || secrets.GTM_ID }}
         run: |
-          if [ -n "$GTM_ID" ]; then
-            echo "const GTM_ID = '${GTM_ID}';" > config.js
-            echo "config.js generated successfully"
+          GTM_ID="$(echo "$GTM_ID" | tr -d '[:space:]')"
+          if [ -z "$GTM_ID" ]; then
+            echo "GTM_ID is not set. Skipping analytics setup."
+            exit 0
+          fi
+          if ! echo "$GTM_ID" | grep -Eq '^[A-Za-z0-9-]+$'; then
+            echo "::error::GTM_ID contains invalid characters"
+            exit 1
+          fi
+
+          echo "const GTM_ID = '${GTM_ID}';" > config.js
+          echo "config.js generated successfully"
+
+          if echo "$GTM_ID" | grep -Eq '^GTM-'; then
+            # Google Tag Manager: <body> 直後に noscript タグを埋め込む
+            # (head 側のスクリプトは index.html が config.js の値から読み込む)
+            NOSCRIPT="<noscript><iframe src=\"https://www.googletagmanager.com/ns.html?id=${GTM_ID}\" height=\"0\" width=\"0\" style=\"display:none;visibility:hidden\"></iframe></noscript>"
+            sed -i "0,/<body>/s|<body>|<body>\n    <!-- Google Tag Manager (noscript) -->\n    ${NOSCRIPT}|" index.html
+            echo "Google Tag Manager tag embedded (${GTM_ID})"
+          else
+            echo "Google Analytics tag will be loaded (${GTM_ID})"
           fi
 
       - name: Setup Pages
